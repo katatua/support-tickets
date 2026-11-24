@@ -328,6 +328,86 @@ CREATE TABLE support_portal.ticket_message (
 CREATE INDEX ticket_message_thread_idx
   ON support_portal.ticket_message (tenant_id, ticket_id, created_at, id);
 
+-- Idempotency receipts are application-persisted because the shared D0 package
+-- provides pure helpers, not an online receipt service.
+CREATE TABLE support_portal.ticket_operation_receipt (
+  id uuid PRIMARY KEY,
+  owner_org_id uuid NOT NULL,
+  application_id text NOT NULL,
+  installation_id uuid NOT NULL,
+  environment_id uuid NOT NULL,
+  tenant_id uuid NOT NULL,
+  actor_id uuid NOT NULL,
+  operation varchar(80) NOT NULL,
+  idempotency_key varchar(160) NOT NULL,
+  payload_sha256 char(64) NOT NULL,
+  response_status smallint NOT NULL CHECK (response_status BETWEEN 200 AND 499),
+  response_body jsonb NOT NULL,
+  ticket_id uuid,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, actor_id, operation, idempotency_key),
+  FOREIGN KEY (owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id)
+    REFERENCES support_portal.ticket
+      (owner_org_id, application_id, installation_id, environment_id, tenant_id, id)
+);
+
+CREATE TABLE support_portal.ticket_intake_limit (
+  owner_org_id uuid NOT NULL,
+  application_id text NOT NULL,
+  installation_id uuid NOT NULL,
+  environment_id uuid NOT NULL,
+  tenant_id uuid NOT NULL,
+  actor_id uuid NOT NULL,
+  window_started_at timestamptz NOT NULL,
+  ticket_count integer NOT NULL CHECK (ticket_count >= 0),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, actor_id)
+);
+
+CREATE TABLE support_portal.ticket_message_draft (
+  id uuid PRIMARY KEY,
+  owner_org_id uuid NOT NULL,
+  application_id text NOT NULL,
+  installation_id uuid NOT NULL,
+  environment_id uuid NOT NULL,
+  tenant_id uuid NOT NULL,
+  ticket_id uuid NOT NULL,
+  author_id uuid NOT NULL,
+  kind support_portal.message_kind NOT NULL,
+  body text NOT NULL CHECK (char_length(btrim(body)) BETWEEN 1 AND 20000),
+  client_message_id uuid NOT NULL,
+  draft_version bigint NOT NULL DEFAULT 1 CHECK (draft_version >= 1),
+  published_message_id uuid,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id)
+    REFERENCES support_portal.ticket
+      (owner_org_id, application_id, installation_id, environment_id, tenant_id, id),
+  FOREIGN KEY (owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id, published_message_id)
+    REFERENCES support_portal.ticket_message
+      (owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id, id),
+  UNIQUE (tenant_id, ticket_id, client_message_id)
+);
+
+CREATE TABLE support_portal.ticket_notification_intent (
+  id uuid PRIMARY KEY,
+  owner_org_id uuid NOT NULL,
+  application_id text NOT NULL,
+  installation_id uuid NOT NULL,
+  environment_id uuid NOT NULL,
+  tenant_id uuid NOT NULL,
+  ticket_id uuid NOT NULL,
+  recipient_actor_id uuid NOT NULL,
+  event_type varchar(40) NOT NULL CHECK (event_type IN ('ticket_created', 'public_reply', 'status_changed', 'assigned')),
+  row_version bigint NOT NULL CHECK (row_version >= 1),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  delivered_at timestamptz,
+  UNIQUE (tenant_id, ticket_id, recipient_actor_id, event_type, row_version),
+  FOREIGN KEY (owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id)
+    REFERENCES support_portal.ticket
+      (owner_org_id, application_id, installation_id, environment_id, tenant_id, id)
+);
+
 CREATE TABLE support_portal.ticket_attachment (
   id uuid NOT NULL,
   owner_org_id uuid NOT NULL,
@@ -425,6 +505,28 @@ FOR EACH ROW EXECUTE FUNCTION support_portal.reject_immutable_mutation();
 CREATE TRIGGER ticket_transition_immutable
 BEFORE UPDATE OR DELETE ON support_portal.ticket_transition
 FOR EACH ROW EXECUTE FUNCTION support_portal.reject_immutable_mutation();
+CREATE TRIGGER ticket_operation_receipt_immutable
+BEFORE UPDATE OR DELETE ON support_portal.ticket_operation_receipt
+FOR EACH ROW EXECUTE FUNCTION support_portal.reject_immutable_mutation();
+
+CREATE FUNCTION support_portal.enforce_draft_version()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.draft_version <> OLD.draft_version + 1 THEN
+    RAISE EXCEPTION 'draft_version must increase by exactly one' USING ERRCODE = '40001';
+  END IF;
+  IF OLD.published_message_id IS NOT NULL THEN
+    RAISE EXCEPTION 'a published draft is immutable' USING ERRCODE = '55000';
+  END IF;
+  NEW.updated_at := clock_timestamp();
+  RETURN NEW;
+END
+$$;
+CREATE TRIGGER ticket_message_draft_version
+BEFORE UPDATE ON support_portal.ticket_message_draft
+FOR EACH ROW EXECUTE FUNCTION support_portal.enforce_draft_version();
 
 -- Tenant, app, installation and environment are all checked in every RLS policy.
 -- The runtime DB role must be separate from the migration owner and have no
@@ -435,7 +537,8 @@ BEGIN
   FOREACH table_name IN ARRAY ARRAY[
     'customer_account', 'account_member', 'staff_membership', 'support_team',
     'team_member', 'category', 'ticket', 'ticket_message', 'ticket_attachment',
-    'ticket_transition', 'ticket_change_link'
+    'ticket_transition', 'ticket_change_link', 'ticket_operation_receipt',
+    'ticket_intake_limit', 'ticket_message_draft', 'ticket_notification_intent'
   ]
   LOOP
     EXECUTE format('ALTER TABLE support_portal.%I ENABLE ROW LEVEL SECURITY', table_name);
@@ -532,12 +635,20 @@ FOR ALL USING (
 CREATE POLICY category_scope ON support_portal.category
 FOR SELECT USING (
   support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
-  AND (support_portal.is_coordinator(tenant_id) OR EXISTS (
-    SELECT 1 FROM support_portal.team_member tm
-    WHERE tm.tenant_id = category.tenant_id
-      AND tm.actor_id = support_portal.current_actor_id()
-      AND tm.active
-  ))
+  AND (
+    support_portal.is_coordinator(tenant_id)
+    OR EXISTS (
+      SELECT 1 FROM support_portal.team_member tm
+      WHERE tm.tenant_id = category.tenant_id
+        AND tm.actor_id = support_portal.current_actor_id()
+        AND tm.active
+    )
+    OR EXISTS (
+      SELECT 1 FROM support_portal.customer_account ca
+      WHERE ca.tenant_id = category.tenant_id
+        AND support_portal.is_active_account_member(ca.tenant_id, ca.id)
+    )
+  )
 );
 CREATE POLICY category_manage ON support_portal.category
 FOR ALL USING (
@@ -582,6 +693,25 @@ FOR UPDATE USING (
   AND (
     support_portal.is_coordinator(tenant_id)
     OR (team_id IS NOT NULL AND support_portal.is_active_team_member(tenant_id, team_id))
+  )
+);
+
+CREATE POLICY ticket_customer_reply_update ON support_portal.ticket
+FOR UPDATE USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND status = 'waiting_customer'
+  AND (
+    (requester_id = support_portal.current_actor_id()
+      AND support_portal.is_active_account_member(tenant_id, account_id))
+    OR (visibility = 'account' AND support_portal.is_active_account_member(tenant_id, account_id))
+  )
+) WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND status = 'in_progress'
+  AND (
+    (requester_id = support_portal.current_actor_id()
+      AND support_portal.is_active_account_member(tenant_id, account_id))
+    OR (visibility = 'account' AND support_portal.is_active_account_member(tenant_id, account_id))
   )
 );
 
@@ -635,6 +765,15 @@ FOR INSERT WITH CHECK (
   AND actor_id = support_portal.current_actor_id()
   AND support_portal.can_read_internal(ticket_id)
 );
+CREATE POLICY ticket_transition_customer_reply_insert ON support_portal.ticket_transition
+FOR INSERT WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND actor_id = support_portal.current_actor_id()
+  AND from_status = 'waiting_customer'
+  AND to_status = 'in_progress'
+  AND support_portal.can_read_ticket(ticket_id)
+  AND NOT support_portal.can_read_internal(ticket_id)
+);
 
 CREATE POLICY ticket_change_link_read ON support_portal.ticket_change_link
 FOR SELECT USING (
@@ -645,6 +784,74 @@ CREATE POLICY ticket_change_link_insert ON support_portal.ticket_change_link
 FOR INSERT WITH CHECK (
   support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
   AND created_by = support_portal.current_actor_id()
+  AND support_portal.can_read_ticket(ticket_id)
+);
+
+CREATE POLICY ticket_operation_receipt_select ON support_portal.ticket_operation_receipt
+FOR SELECT USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND actor_id = support_portal.current_actor_id()
+  AND support_portal.is_authenticated_person()
+  AND (ticket_id IS NULL OR support_portal.can_read_ticket(ticket_id))
+);
+CREATE POLICY ticket_operation_receipt_insert ON support_portal.ticket_operation_receipt
+FOR INSERT WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND actor_id = support_portal.current_actor_id()
+  AND support_portal.is_authenticated_person()
+  AND (ticket_id IS NULL OR support_portal.can_read_ticket(ticket_id))
+);
+
+CREATE POLICY ticket_intake_limit_self ON support_portal.ticket_intake_limit
+FOR ALL USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND actor_id = support_portal.current_actor_id()
+  AND support_portal.is_authenticated_person()
+) WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND actor_id = support_portal.current_actor_id()
+  AND support_portal.is_authenticated_person()
+);
+
+CREATE POLICY ticket_message_draft_select ON support_portal.ticket_message_draft
+FOR SELECT USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND author_id = support_portal.current_actor_id()
+  AND support_portal.can_read_ticket(ticket_id)
+  AND (kind = 'public' OR support_portal.can_read_internal(ticket_id))
+);
+CREATE POLICY ticket_message_draft_insert ON support_portal.ticket_message_draft
+FOR INSERT WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND author_id = support_portal.current_actor_id()
+  AND support_portal.can_read_ticket(ticket_id)
+  AND (kind = 'public' OR support_portal.can_read_internal(ticket_id))
+);
+CREATE POLICY ticket_message_draft_update ON support_portal.ticket_message_draft
+FOR UPDATE USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND author_id = support_portal.current_actor_id()
+  AND published_message_id IS NULL
+  AND support_portal.can_read_ticket(ticket_id)
+  AND (kind = 'public' OR support_portal.can_read_internal(ticket_id))
+) WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND author_id = support_portal.current_actor_id()
+  AND support_portal.can_read_ticket(ticket_id)
+  AND (kind = 'public' OR support_portal.can_read_internal(ticket_id))
+);
+
+CREATE POLICY ticket_notification_intent_select ON support_portal.ticket_notification_intent
+FOR SELECT USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND recipient_actor_id = support_portal.current_actor_id()
+  AND support_portal.is_authenticated_person()
+  AND support_portal.can_read_ticket(ticket_id)
+);
+CREATE POLICY ticket_notification_intent_insert ON support_portal.ticket_notification_intent
+FOR INSERT WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.is_authenticated_person()
   AND support_portal.can_read_ticket(ticket_id)
 );
 

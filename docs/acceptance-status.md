@@ -1,35 +1,53 @@
-# Apoio · estado de APO-AT-001–019
+# Apoio · APO-AT-001–019
 
-Esta matriz descreve o que foi provado neste ramo. **Prova de domínio ou RLS não
-equivale a fluxo autenticado end-to-end.** O D1 só fica pronto depois de cada item
-ser repetido através do runtime comum num ambiente de testes.
+Estado desta branch. Unit tests exercem regras e HTTP com um serviço de teste; a prova
+SQL exercita PostgreSQL 16.15 com identidade sintética e RLS. Nenhuma dessas provas
+substitui o runtime autenticado comum.
 
-| Cenário | Prova atual | Falta para fechar end-to-end |
+Resultado local final desta revisão: `python3 -m unittest discover -s tests -v` passou
+35 testes; `python3 -m py_compile support_portal/*.py`, renderização Flask da página e
+`node --check` do JavaScript renderizado passaram. A migration e `tests/postgres_rls.sql`
+passaram em PostgreSQL 16.15 descartável, incluindo draft por autor e revogação de
+membership; as fixtures foram revertidas.
+
+| Cenário | Prova local nesta branch | Gate ainda aberto |
 | --- | --- | --- |
-| APO-AT-001 | `test_customer_cannot_discover_other_tenant_ticket` e prova RLS com Alfa/Beta; uma query por ticket alheio devolve o mesmo vazio que um ID inexistente. O RLS também recusa um service actor com o mesmo UUID de uma pessoa. | Executar pelo shell e API autenticados. |
-| APO-AT-002 | Projeção, pesquisa, contexto de assistente e payload de notificação omitem o texto interno; RLS oculta nota e anexo internos ao cliente. | Exercitar API, pesquisa persistida, exportação, notificação e ferramenta real do assistente. |
-| APO-AT-003 | Replay do mesmo payload reconhecido pelo digest canónico. | Persistir recibo durável e repetir POST após perder a resposta. |
-| APO-AT-004 | Chave igual com conteúdo diferente dá conflito 409 no domínio. | Repetir pelo endpoint transacional e provar que não houve mutação. |
-| APO-AT-005 | Atribuição com versão antiga dá conflito 412; SQL exige incremento da versão. | Atualização concorrente real na API/base. |
-| APO-AT-006 | Resolver sem responsável ou sem resumo válido é rejeitado no domínio. | Repetir na API e persistir histórico/auditoria. |
-| APO-AT-007 | Resposta de cliente reabre `waiting_customer` para `in_progress` e conserva mensagens anteriores. | Confirmar operação atómica na base e vista móvel. |
-| APO-AT-008 | Anexo pendente não pode ser publicado; a migração só guarda anexos limpos ligados a uma mensagem. | Upload privado, validação real, rejeição sem vínculo e limpeza do rascunho através de FileAsset. |
-| APO-AT-009 | Contexto tipado do assistente recebe só conversa pública. | Ligar ferramenta real ao serviço autorizado e provar ausência do texto interno no pedido ao modelo. |
-| APO-AT-010 | Revisão aprovada antiga ou com digest diferente não passa o gate. | Recibo/admissão oficial no serviço comum. |
-| APO-AT-011 | Sem prova local ainda. | Reconciliar resposta perdida com recibo D0, sem criar tarefa duplicada. |
-| APO-AT-012 | `CLAIMED_DONE` é rotulado como à espera de confirmação, nunca produção. | Confirmar a rotulagem na UI real e só mudar com prova de runtime. |
-| APO-AT-013 | Transição de apoio funciona no domínio sem chamar Sovharn. | API e UI persistentes enquanto Sovharn/modelo estão indisponíveis. |
-| APO-AT-014 | Prova RLS retira acesso a ticket, mensagens e anexos após revogar cliente ou equipa. | FileAsset deve negar URL/download antigo após revogação; testar fluxo real de exportação. |
-| APO-AT-015 | Sem interface móvel implementada. | Browser real em 390 px com teclado aberto, rolagem, foco e submissão. |
-| APO-AT-016 | Sem integração externa. | Aguardar contrato/runtime SH Connect certificado e obter recibo e readback reais. |
-| APO-AT-017 | Paginação filtra ACL antes de `has_more` e cursor; page size validado. | Paginação SQL/HTTP com cursor estável, concorrência e nenhum duplicado. |
-| APO-AT-018 | Categoria inativa é rejeitada sem alterar estado ou versão. | Testar transação persistida e resposta da API. |
-| APO-AT-019 | Chave composta liga anexo a mensagem publicada e a mesma instalação/tenant; cliente não vê anexo de nota interna. | Publicar FileAsset + mensagem atomicamente; anexo sem mensagem continua privado ao uploader. |
+| APO-AT-001 | `test_customer_cannot_discover_other_tenant_ticket`; fixture PostgreSQL confirma Alfa/Beta indistinguíveis e actor service sem acesso. API mapeia todas as recusas a 404. | Repetir com identidade D0 e utilizadores reais de teste. |
+| APO-AT-002 | Projeções de cliente, exportação, pesquisa, assistente e notificação não incluem notas internas; RLS filtra mensagem/anexo; drafts são por autor. | Cobrir pesquisa/exportação/assistente/notificação na API e runtime com Postgres. |
+| APO-AT-003 | Digest idempotente no domínio; API exige chave e encaminha-a. O serviço cria recibo PostgreSQL na mesma transação; formulário reutiliza o mesmo ID/chave após resposta perdida. | Exercitar replay do POST persistido depois de perder a resposta via driver/runtime. |
+| APO-AT-004 | Chave/digest igual dá replay; chave igual com corpo diferente dá conflito; HTTP recusa chave ausente. | Executar conflito contra recibo persistido e provar rollback da operação. |
+| APO-AT-005 | Atribuição com versão antiga dá 412 no domínio; API encaminha a versão esperada; operações de persistência fazem `SELECT FOR UPDATE` e validam essa versão. | Corrida concorrente real por duas sessões autenticadas. |
+| APO-AT-006 | Resolução sem membro de equipa ativo ou resumo de 10 caracteres falha no domínio. | Exercitar autorização e histórico pela API persistida. |
+| APO-AT-007 | Resposta em `waiting_customer` regressa a `in_progress` e conserva a pergunta no histórico; backend publica mensagem e altera estado na transação. | Exercitar sequência completa cliente/equipa no runtime. |
+| APO-AT-008 | Anexo pendente/rejeitado não pode ser publicado; interface desativa uploads e não aceita bytes. | FileAsset privado, validação de conteúdo e tratamento de upload inválido. |
+| APO-AT-009 | Ferramenta `read_ticket` é tipada e só lê via serviço autorizado; contexto do assistente inclui mensagens públicas. | Ligar modelo real e provar o payload completo enviado, sem notas internas. |
+| APO-AT-010 | Revisão aprovada antiga ou digest diferente não pode ser admitida. | Recibo oficial de admissão do serviço comum. |
+| APO-AT-011 | Sem integração de submissão ou reconciliação declarada. | Perder resposta de submissão real e reconciliar pelo recibo sem tarefa duplicada. |
+| APO-AT-012 | `CLAIMED_DONE` é rotulado como aguardando confirmação, nunca como produção. | Confirmar no shell/runtime partilhado. |
+| APO-AT-013 | A regra e API de apoio não chamam Sovharn nem modelo; teste de domínio cobre indisponibilidade do serviço comum. Existe procedimento de fallback manual. | Repetir com Sovharn e fornecedor de modelo desligados em runtime persistente. |
+| APO-AT-014 | Fixture RLS revoga a leitura antiga de tickets, mensagens e anexos após retirar membership. | URLs de ficheiro e exports emitidos antes da revogação; serviço FileAsset ainda não ligado. |
+| APO-AT-015 | HTML/CSS inclui layouts móveis até 390 px e campos de 16 px para evitar zoom automático. | Abrir browser real a 390 px com teclado, foco, rolagem e submissão. |
+| APO-AT-016 | Nenhuma integração externa afirmada. Lock e inventário D0 continuam em `PLANNED`. | Contrato/credenciais/readback SH Connect e evidência externa autorizada. |
+| APO-AT-017 | Paginação filtra ACL antes de cursor/`has_more`; API valida e passa cursor codificado em base64; lista não publica contagens ocultas. | Repetir em SQL/API com páginas simultâneas e provar ausência de duplicados. |
+| APO-AT-018 | Categoria inativa é recusada sem alteração de ticket no domínio; endpoint de triagem usa transação e valida categoria antes do update. | Exercitar a mutação em PostgreSQL/API e confirmar estado/versionamento. |
+| APO-AT-019 | A migration só permite anexo limpo ligado a mensagem publicada e mesma instalação/tenant; upload continua indisponível. | Upload privado ao autor, scanner real, publicação atómica e revogação do URL. |
 
-## Dependência D0
+## Requisitos APO-001–014
 
-O contexto esperado está fixado em `../support_portal/d0-contract.lock.json`, que aponta
-para o commit `2b33272c8287d2ce5e52da96bb20f45635be1c2c` do PR draft
-`katatua/gravit-workspace-cloud#3479`. Essa revisão ainda não está publicada nem ligada
-à identidade. Não ligar o serviço nem declarar a integração verificada até a entrada
-real do middleware/contrato comum.
+O domínio e o serviço local cobrem identidade por pessoa, ACL de objeto, membership
+revogável, visibilidade requester/account, fila e atribuição, rascunhos, notas internas,
+transições, versões esperadas, recibos idempotentes, limites de intake, pesquisa
+autorizada, cursor, contexto de assistente só público, anexos presos a mensagem, e
+separação entre ticket de suporte e pedido de evolução. Consulte os testes unitários e
+`migrations/0001_support_portal.sql` para as regras específicas. O que depende de D0,
+FileAsset, scanner, navegador ou SH Connect permanece por provar.
+
+## D0 fixado
+
+`support_portal/d0-contract.lock.json` aponta para o head atual consultado do PR draft
+`katatua/gravit-workspace-cloud#3479`: `72c22b87c4989dc50749087184d34cacb81127c4`.
+O schema `request-context.v1.schema.json` mantém o blob SHA
+`b5a47c322ad71638ad9ba6b888449a7c946a269c`; o manifesto de destinos mantém
+`0a8c9e8eb2a1622f3001a007303d657bdbea7889`. O PR D0 continua draft, sem middleware de
+identidade, instalação Apoio ou readback SH Connect; o resolver desta app falha
+fechado sem objeto confiável WSGI.

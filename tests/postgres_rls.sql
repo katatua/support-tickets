@@ -104,6 +104,21 @@ VALUES
    '5a000000-0000-4000-8000-000000000002', '5d000000-0000-4000-8000-000000000002',
    '55000000-0000-4000-8000-000000000003', 'internal.pdf', 'application/pdf', 128, repeat('e', 64), 'clean');
 
+INSERT INTO support_portal.ticket_message_draft
+  (id, owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id,
+   author_id, kind, body, client_message_id)
+VALUES
+  ('5e000000-0000-4000-8000-000000000001', '51000000-0000-4000-8000-000000000000', 'apoio-test-app',
+   '52000000-0000-4000-8000-000000000001', '53000000-0000-4000-8000-000000000001',
+   '54000000-0000-4000-8000-000000000001', '59000000-0000-4000-8000-000000000001',
+   '55000000-0000-4000-8000-000000000001', 'public', 'Rascunho privado da cliente.',
+   '5f000000-0000-4000-8000-000000000001'),
+  ('5e000000-0000-4000-8000-000000000002', '51000000-0000-4000-8000-000000000000', 'apoio-test-app',
+   '52000000-0000-4000-8000-000000000001', '53000000-0000-4000-8000-000000000001',
+   '54000000-0000-4000-8000-000000000001', '59000000-0000-4000-8000-000000000001',
+   '55000000-0000-4000-8000-000000000003', 'internal', 'Nota interna em rascunho secreta.',
+   '5f000000-0000-4000-8000-000000000002');
+
 SET ROLE apoio_runtime_test;
 SELECT set_config('app.owner_org_id', '51000000-0000-4000-8000-000000000000', true);
 SELECT set_config('app.application_id', 'apoio-test-app', true);
@@ -143,7 +158,7 @@ SELECT set_config('app.actor_kind', 'user', true);
 SELECT set_config('app.data_tenant_id', '54000000-0000-4000-8000-000000000001', true);
 SELECT set_config('app.actor_id', '55000000-0000-4000-8000-000000000001', true);
 DO $$
-DECLARE ticket_count integer; message_count integer; attachment_count integer;
+DECLARE ticket_count integer; message_count integer; attachment_count integer; draft_count integer; secret_drafts integer;
 BEGIN
   SELECT count(*) INTO ticket_count FROM support_portal.ticket
     WHERE id = '59000000-0000-4000-8000-000000000001';
@@ -151,7 +166,11 @@ BEGIN
     WHERE ticket_id = '59000000-0000-4000-8000-000000000001';
   SELECT count(*) INTO attachment_count FROM support_portal.ticket_attachment
     WHERE ticket_id = '59000000-0000-4000-8000-000000000001';
-  IF ticket_count <> 1 OR message_count <> 1 OR attachment_count <> 1 THEN
+  SELECT count(*) INTO draft_count FROM support_portal.ticket_message_draft
+    WHERE ticket_id = '59000000-0000-4000-8000-000000000001';
+  SELECT count(*) INTO secret_drafts FROM support_portal.ticket_message_draft
+    WHERE ticket_id = '59000000-0000-4000-8000-000000000001' AND body LIKE '%secreta%';
+  IF ticket_count <> 1 OR message_count <> 1 OR attachment_count <> 1 OR draft_count <> 1 OR secret_drafts <> 0 THEN
     RAISE EXCEPTION 'customer view exposed internal content or hid public content';
   END IF;
 END
@@ -163,7 +182,7 @@ UPDATE support_portal.account_member
  WHERE id = '56000000-0000-4000-8000-000000000001';
 SET ROLE apoio_runtime_test;
 DO $$
-DECLARE ticket_count integer; message_count integer; attachment_count integer;
+DECLARE ticket_count integer; message_count integer; attachment_count integer; draft_count integer;
 BEGIN
   SELECT count(*) INTO ticket_count FROM support_portal.ticket
     WHERE id = '59000000-0000-4000-8000-000000000001';
@@ -171,7 +190,9 @@ BEGIN
     WHERE ticket_id = '59000000-0000-4000-8000-000000000001';
   SELECT count(*) INTO attachment_count FROM support_portal.ticket_attachment
     WHERE ticket_id = '59000000-0000-4000-8000-000000000001';
-  IF ticket_count <> 0 OR message_count <> 0 OR attachment_count <> 0 THEN
+  SELECT count(*) INTO draft_count FROM support_portal.ticket_message_draft
+    WHERE ticket_id = '59000000-0000-4000-8000-000000000001';
+  IF ticket_count <> 0 OR message_count <> 0 OR attachment_count <> 0 OR draft_count <> 0 THEN
     RAISE EXCEPTION 'revoked customer membership retained access to old content';
   END IF;
 END
@@ -180,13 +201,17 @@ $$;
 SELECT set_config('app.data_tenant_id', '54000000-0000-4000-8000-000000000001', true);
 SELECT set_config('app.actor_id', '55000000-0000-4000-8000-000000000003', true);
 DO $$
-DECLARE message_count integer; attachment_count integer;
+DECLARE message_count integer; attachment_count integer; draft_count integer; secret_drafts integer;
 BEGIN
   SELECT count(*) INTO message_count FROM support_portal.ticket_message
     WHERE ticket_id = '59000000-0000-4000-8000-000000000001';
   SELECT count(*) INTO attachment_count FROM support_portal.ticket_attachment
     WHERE ticket_id = '59000000-0000-4000-8000-000000000001';
-  IF message_count <> 2 OR attachment_count <> 2 THEN
+  SELECT count(*) INTO draft_count FROM support_portal.ticket_message_draft
+    WHERE ticket_id = '59000000-0000-4000-8000-000000000001';
+  SELECT count(*) INTO secret_drafts FROM support_portal.ticket_message_draft
+    WHERE ticket_id = '59000000-0000-4000-8000-000000000001' AND body LIKE '%secreta%';
+  IF message_count <> 2 OR attachment_count <> 2 OR draft_count <> 1 OR secret_drafts <> 1 THEN
     RAISE EXCEPTION 'active team member cannot read internal history and attachments';
   END IF;
 END
@@ -198,7 +223,7 @@ UPDATE support_portal.team_member
  WHERE id = '58000000-0000-4000-8000-000000000001';
 SET ROLE apoio_runtime_test;
 DO $$
-DECLARE ticket_count integer; message_count integer; attachment_count integer;
+DECLARE ticket_count integer; message_count integer; attachment_count integer; draft_count integer;
 BEGIN
   SELECT count(*) INTO ticket_count FROM support_portal.ticket
     WHERE id = '59000000-0000-4000-8000-000000000001';
@@ -206,7 +231,9 @@ BEGIN
     WHERE ticket_id = '59000000-0000-4000-8000-000000000001';
   SELECT count(*) INTO attachment_count FROM support_portal.ticket_attachment
     WHERE ticket_id = '59000000-0000-4000-8000-000000000001';
-  IF ticket_count <> 0 OR message_count <> 0 OR attachment_count <> 0 THEN
+  SELECT count(*) INTO draft_count FROM support_portal.ticket_message_draft
+    WHERE ticket_id = '59000000-0000-4000-8000-000000000001';
+  IF ticket_count <> 0 OR message_count <> 0 OR attachment_count <> 0 OR draft_count <> 0 THEN
     RAISE EXCEPTION 'revoked team membership retained access to old content';
   END IF;
 END

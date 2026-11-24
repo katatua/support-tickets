@@ -29,7 +29,6 @@ class RequestContext:
     data_tenant_id: UUID
     actor_id: UUID
     actor_kind: str
-    delegation_ref: str | None
     policy_revision: str
     correlation_id: UUID
 
@@ -43,7 +42,7 @@ class RequestContext:
         required = {
             "owner_org_id", "application_id", "installation_id", "environment_id",
             "environment_kind", "data_tenant_id", "actor_id", "actor_kind",
-            "delegation_ref", "policy_revision", "correlation_id",
+            "policy_revision", "correlation_id",
         }
         if set(raw.keys()) != required:
             raise ContextUnavailable("Authenticated Sovharn context has an unsupported schema.")
@@ -58,7 +57,6 @@ class RequestContext:
                 data_tenant_id=UUID(str(raw["data_tenant_id"])),
                 actor_id=UUID(str(raw["actor_id"])),
                 actor_kind=_required_text(raw["actor_kind"]),
-                delegation_ref=_optional_text(raw["delegation_ref"]),
                 policy_revision=_required_text(raw["policy_revision"]),
                 correlation_id=UUID(str(raw["correlation_id"])),
             )
@@ -67,7 +65,7 @@ class RequestContext:
 
         if context.environment_kind not in {"test", "production"}:
             raise ContextUnavailable("Unsupported installation environment.")
-        if context.actor_kind not in {"user", "service"}:
+        if context.actor_kind not in {"user", "service", "assistant"}:
             raise ContextUnavailable("Unsupported actor kind.")
         return context
 
@@ -95,10 +93,4 @@ def _required_text(value: object) -> str:
     return value
 
 
-def _optional_text(value: object) -> str | None:
-    if value is None:
-        return None
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError("optional text")
-    return value
 

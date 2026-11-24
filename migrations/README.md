@@ -1,20 +1,21 @@
 # Migrações
 
-0001_support_portal.sql is the app-specific D1 schema draft. It assumes the
-common identity and file services are separate and does not create user credentials,
-storage buckets, audit tables, command receipts, jobs, or an outbox. Those are owned
-by D0.
+`0001_support_portal.sql` is the app-specific D1 schema draft. It does not create
+user credentials or object storage. Operation receipts and notification intents in
+this migration are app records; they are not the common D0 receipt/outbox dispatcher.
+The file-service binding, malware scanner, delivery worker and external integration
+remain unavailable until their common runtime contracts are published and connected.
 
 The database session is populated from the server-authenticated request context,
 inside each transaction. Never derive context variables from browser input. Keep the
 runtime role separate from the migration owner and without BYPASSRLS.
 
 The migration and `tests/postgres_rls.sql` were applied to a disposable PostgreSQL
-16.15 instance. The integration script uses a non-login runtime role without
-`BYPASSRLS`, inserts only synthetic fixtures, checks customer and team views, and
-checks that a service actor cannot inherit a person's membership. The fixture then
-rolls its transaction back. This proves the database policies in isolation;
-it does not prove the D0 request middleware, HTTP routes, or private object storage.
+16.15 instance. The SQL proof uses a non-login runtime role without `BYPASSRLS`,
+inserts only synthetic fixtures, checks customer and team views, and checks that a
+service actor cannot inherit a person's membership. It rolls back its fixtures. This
+proves the database policies in isolation; it does not prove the D0 request middleware,
+the Python/PostgreSQL adapter, or private object storage.
 
 Run the migration and RLS proof only against a disposable database:
 

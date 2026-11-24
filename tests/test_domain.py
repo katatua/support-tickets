@@ -115,7 +115,6 @@ def trusted_state(**overrides):
         "data_tenant_id": str(TENANT_A),
         "actor_id": str(ANA),
         "actor_kind": "user",
-        "delegation_ref": None,
         "policy_revision": "policy-1",
         "correlation_id": str(uuid4()),
     }
@@ -155,6 +154,19 @@ class DomainTests(unittest.TestCase):
                 environment_id=ENV,
                 environment_kind="production",
             )
+
+    def test_context_accepts_canonical_assistant_kind_but_does_not_grant_ticket_access(self):
+        context = RequestContext.from_trusted_state(trusted_state(actor_kind="assistant"))
+        self.assertEqual(context.actor_kind, "assistant")
+        assistant = ActorContext(
+            tenant_id=TENANT_A,
+            actor_id=ANA,
+            actor_kind=ActorKind.ASSISTANT,
+            roles=frozenset({Role.CUSTOMER_MEMBER}),
+            account_ids=frozenset({ACCOUNT_A}),
+        )
+        with self.assertRaises(NotFound):
+            require_visible_ticket(assistant, ticket())
 
     def test_customer_cannot_discover_other_tenant_ticket(self):
         actor = ActorContext(

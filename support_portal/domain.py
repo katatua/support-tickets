@@ -47,6 +47,7 @@ class ValidationError(DomainError):
 class ActorKind(StrEnum):
     USER = "user"
     SERVICE = "service"
+    ASSISTANT = "assistant"
 
 
 class Role(StrEnum):

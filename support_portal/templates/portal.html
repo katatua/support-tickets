@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <title>Apoio · Pedidos</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='portal.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">A</span><div><strong>Apoio</strong><small>Pedidos de clientes</small></div></div>
+    <div class="session" aria-label="Sessão autenticada"><span class="status-dot"></span><span>Sessão autenticada</span></div>
+  </header>
+
+  <main class="page-shell">
+    <section class="intro">
+      <div>
+        <p class="eyebrow">SUPORTE AO CLIENTE</p>
+        <h1>Pedidos e respostas</h1>
+        <p class="lead">Abra um pedido, acompanhe a conversa e responda quando a equipa precisar de si.</p>
+      </div>
+      <p class="offline-note"><span aria-hidden="true">●</span> O apoio normal não depende do Sovharn nem de um modelo.</p>
+    </section>
+
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+    <section class="workspace" aria-label="Portal de pedidos">
+      <aside class="list-panel">
+        <div class="panel-heading"><div><p class="eyebrow">{% if 'agent' in me.capabilities or 'coordinator' in me.capabilities or 'platform_admin' in me.capabilities %}FILA DA EQUIPA{% else %}OS SEUS PEDIDOS{% endif %}</p><h2>Pedidos</h2></div><button id="new-ticket-toggle" class="button primary" type="button">Novo pedido</button></div>
+        <label class="search-label" for="ticket-search">Pesquisar pedidos</label>
+        <div class="search-box"><span aria-hidden="true">⌕</span><input id="ticket-search" type="search" autocomplete="off" placeholder="Assunto ou mensagem pública"></div>
+        <div id="ticket-list" class="ticket-list" aria-live="polite"><p class="empty">A carregar pedidos…</p></div>
+        <button id="load-more" class="button secondary load-more" type="button" hidden>Carregar mais pedidos</button>
+      </aside>
+
+      <section class="detail-panel" aria-label="Detalhe do pedido">
+        <div id="empty-detail" class="empty-detail"><div class="empty-icon" aria-hidden="true">↗</div><h2>Escolha um pedido</h2><p>Selecione um pedido na lista ou abra um novo.</p></div>
+        <article id="ticket-detail" hidden></article>
+      </section>
+    </section>
+
+    <dialog id="new-ticket-dialog" class="dialog">
+      <form id="new-ticket-form" method="dialog" class="dialog-card">
+        <div class="dialog-heading"><div><p class="eyebrow">NOVO PEDIDO</p><h2>Como podemos ajudar?</h2></div><button id="close-new-ticket" class="icon-button" type="button" aria-label="Fechar">×</button></div>
+        <label for="account-id">Empresa</label><select id="account-id" name="account_id" required></select>
+        <label for="subject">Assunto</label><input id="subject" name="subject" maxlength="180" minlength="5" required>
+        <label for="description">O que aconteceu?</label><textarea id="description" name="body" rows="5" maxlength="20000" minlength="10" required></textarea>
+        <label for="visibility">Quem pode acompanhar?</label><select id="visibility" name="visibility"><option value="requester">Só eu</option><option value="account">A minha empresa</option></select>
+        <label for="category-id">Categoria <span class="optional">opcional</span></label><select id="category-id" name="category_id"><option value="">Escolher mais tarde</option></select>
+        <p class="privacy-hint">Os ficheiros ficam desativados até estar ligado o armazenamento privado e a validação de segurança.</p>
+        <div class="form-actions"><button id="cancel-new-ticket" class="button secondary" type="button">Cancelar</button><button class="button primary" type="submit">Enviar pedido</button></div>
+      </form>
+    </dialog>
+  </main>
+
+  <footer><span>Apoio</span><span>Portal autenticado · As notas internas não aparecem na vista de clientes</span></footer>
+
+  <script>
+    (() => {
+      const me = {{ me|tojson }};
+      const list = document.getElementById('ticket-list');
+      const detail = document.getElementById('ticket-detail');
+      const emptyDetail = document.getElementById('empty-detail');
+      const notice = document.getElementById('notice');
+      const dialog = document.getElementById('new-ticket-dialog');
+      let currentTicket = null;
+      let searchTimer = null;
+      let nextCursor = null;
+      let createIdempotencyKey = crypto.randomUUID();
+      const operationKeys = new WeakMap();
+      const operationKey = form => {
+        if (!operationKeys.has(form)) operationKeys.set(form, crypto.randomUUID());
+        return operationKeys.get(form);
+      };
+
+      const node = (tag, className, text) => {
+        const item = document.createElement(tag);
+        if (className) item.className = className;
+        if (text !== undefined && text !== null) item.textContent = String(text);
+        return item;
+      };
+      const say = (text, bad = false) => {
+        notice.textContent = text;
+        notice.className = bad ? 'notice error' : 'notice';
+        notice.hidden = false;
+        window.setTimeout(() => { notice.hidden = true; }, 6000);
+      };
+      const request = async (path, options = {}) => {
+        const response = await fetch(path, {credentials: 'same-origin', ...options, headers: {'Content-Type': 'application/json', ...(options.headers || {})}});
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const error = new Error(data.message || 'Não foi possível concluir esta operação.');
+          error.status = response.status;
+          throw error;
+        }
+        return data;
+      };
+      const statusLabel = value => ({new:'Novo',triaged:'Classificado',in_progress:'Em tratamento',waiting_customer:'À espera de resposta',resolved:'Resolvido',closed:'Fechado',cancelled:'Cancelado'}[value] || value);
+      const dateLabel = value => new Intl.DateTimeFormat('pt-PT', {dateStyle:'medium',timeStyle:'short'}).format(new Date(value));
+      const fillSelect = (select, values, placeholder) => {
+        select.replaceChildren();
+        if (placeholder) select.append(node('option', '', placeholder));
+        values.forEach(item => {
+          const option = node('option', '', item.name);
+          option.value = item.id;
+          select.append(option);
+        });
+      };
+      const renderList = (items, {append = false} = {}) => {
+        if (!append) list.replaceChildren();
+        if (!items.length) {
+          if (!append) list.append(node('p', 'empty', 'Ainda não há pedidos nesta fila.'));
+          return;
+        }
+        items.forEach(ticket => {
+          const button = node('button', `ticket-row${currentTicket?.id === ticket.id ? ' active' : ''}`);
+          button.type = 'button';
+          const top = node('span', 'ticket-row-top');
+          top.append(node('span', 'ticket-id', ticket.id.slice(0, 8).toUpperCase()));
+          top.append(node('span', 'ticket-status', statusLabel(ticket.status)));
+          button.append(top);
+          button.append(node('strong', 'ticket-subject', ticket.subject));
+          button.append(node('span', 'ticket-date', dateLabel(ticket.updated_at)));
+          button.addEventListener('click', () => openTicket(ticket.id));
+          list.append(button);
+        });
+      };
+      const loadTickets = async ({append = false} = {}) => {
+        try {
+          const query = document.getElementById('ticket-search').value.trim();
+          const url = new URL('/api/v1/tickets', window.location.origin);
+          if (query) url.searchParams.set('q', query);
+          if (append && nextCursor) url.searchParams.set('cursor', nextCursor);
+          const page = await request(url.pathname + url.search);
+          renderList(page.items, {append});
+          nextCursor = page.next_cursor;
+          document.getElementById('load-more').hidden = !page.has_more;
+        } catch (error) { say(error.message, true); }
+      };
+      const buildDraftForm = (ticket, kind = 'public') => {
+        const savedDraft = (ticket.drafts || []).find(item => item.kind === kind && !item.published_message_id);
+        let draft = savedDraft || null;
+        const clientMessageId = draft?.client_message_id || crypto.randomUUID();
+        let publishRequest = null;
+        const form = node('form', `reply-form${kind === 'internal' ? ' internal' : ''}`);
+        const label = node('label', 'reply-label', kind === 'internal' ? 'Nota interna · só a equipa' : 'Responder ao cliente');
+        const textarea = node('textarea', '', draft?.body || '');
+        textarea.rows = 3;
+        textarea.maxLength = 20000;
+        textarea.placeholder = kind === 'internal' ? 'Escreva uma nota para a equipa…' : 'Escreva uma resposta…';
+        const actions = node('div', 'reply-actions');
+        const save = node('button', 'button secondary', 'Guardar rascunho');
+        save.type = 'button';
+        const publish = node('button', 'button primary', 'Guardar e publicar');
+        publish.type = 'submit';
+        actions.append(save, publish);
+        form.append(label, textarea, actions);
+        const persistDraft = async () => {
+          if (!textarea.value.trim()) throw new Error('Escreva uma mensagem antes de guardar.');
+          const data = {body:textarea.value, expected_ticket_version:ticket.row_version};
+          if (!draft) {
+            draft = await request(`/api/v1/tickets/${ticket.id}/drafts`, {
+              method:'POST', body:JSON.stringify({...data, kind, client_message_id:clientMessageId})
+            });
+          } else {
+            draft = await request(`/api/v1/tickets/${ticket.id}/drafts/${draft.id}`, {
+              method:'PATCH', body:JSON.stringify({...data, expected_draft_version:draft.version})
+            });
+          }
+          return draft;
+        };
+        save.addEventListener('click', async () => {
+          save.disabled = true;
+          try {
+            await persistDraft();
+            say('Rascunho guardado só para si.');
+            await openTicket(ticket.id);
+          } catch (error) { say(error.message, true); }
+          finally { save.disabled = false; }
+        });
+        form.addEventListener('submit', async event => {
+          event.preventDefault();
+          publish.disabled = true;
+          save.disabled = true;
+          try {
+            if (!publishRequest) {
+              const persisted = await persistDraft();
+              publishRequest = {
+                draftId:persisted.id,
+                expectedTicketVersion:ticket.row_version,
+                expectedDraftVersion:persisted.version
+              };
+            }
+            await request(`/api/v1/tickets/${ticket.id}/drafts/${publishRequest.draftId}/publish`, {
+              method:'POST', headers:{'Idempotency-Key':clientMessageId},
+              body:JSON.stringify({expected_ticket_version:publishRequest.expectedTicketVersion, expected_draft_version:publishRequest.expectedDraftVersion})
+            });
+            say(kind === 'internal' ? 'Nota guardada para a equipa.' : 'Resposta publicada.');
+            await openTicket(ticket.id);
+            await loadTickets();
+          } catch (error) {
+            if (publishRequest) {
+              textarea.disabled = true;
+              publish.textContent = 'Tentar confirmar publicação';
+              say(error.status
+                ? `${error.message} Atualize o pedido antes de voltar a editar.`
+                : 'A confirmação não chegou. Repita este pedido para reconciliar o mesmo recibo.', true);
+            } else {
+              say(error.message, true);
+            }
+          }
+          finally { publish.disabled = false; save.disabled = Boolean(publishRequest); }
+        });
+        return form;
+      };
+      const staffRoles = new Set(['agent', 'coordinator', 'platform_admin']);
+      const staffCapabilities = new Set(me.capabilities || []);
+      const coordinator = staffCapabilities.has('coordinator') || staffCapabilities.has('platform_admin');
+      document.getElementById('new-ticket-toggle').hidden = !staffCapabilities.has('customer_admin') && !staffCapabilities.has('customer_member');
+      const buildStaffControls = ticket => {
+        if (![...staffCapabilities].some(role => staffRoles.has(role))) return null;
+        const panel = node('section', 'staff-controls');
+        panel.append(node('p', 'eyebrow', 'FERRAMENTAS DA EQUIPA'));
+        panel.append(node('h3', '', 'Triagem e atribuição'));
+
+        if (coordinator && ticket.status === 'new') {
+          const triage = node('form', 'staff-form');
+          triage.append(node('label', 'reply-label', 'Classificar pedido'));
+          const category = document.createElement('select');
+          fillSelect(category, me.categories || [], 'Escolher categoria');
+          const priority = document.createElement('select');
+          [['low','Baixa'],['normal','Normal'],['high','Alta'],['urgent','Urgente']].forEach(([value,label]) => {
+            const option = node('option', '', label); option.value = value; priority.append(option);
+          });
+          const submit = node('button', 'button secondary', 'Classificar'); submit.type = 'submit';
+          triage.append(category, priority, submit);
+          triage.addEventListener('submit', async event => {
+            event.preventDefault(); submit.disabled = true;
+            try {
+              await request(`/api/v1/tickets/${ticket.id}/triage`, {
+                method:'POST', headers:{'Idempotency-Key':operationKey(triage)},
+                body:JSON.stringify({expected_version:ticket.row_version, category_id:category.value, priority:priority.value})
+              });
+              say('Pedido classificado.'); await openTicket(ticket.id); await loadTickets();
+            } catch (error) { say(error.message, true); }
+            finally { submit.disabled = false; }
+          });
+          panel.append(triage);
+        }
+
+        const teams = me.teams || [];
+        const canSelfAssign = staffCapabilities.has('agent') && [null, me.context.actor_id].includes(ticket.assignee_id);
+        if (teams.length && (coordinator || canSelfAssign)) {
+          const assignment = node('form', 'staff-form');
+          assignment.append(node('label', 'reply-label', 'Atribuir à equipa'));
+          const team = document.createElement('select');
+          fillSelect(team, teams, 'Escolher equipa');
+          const assignee = document.createElement('select');
+          const updateMembers = () => {
+            const selected = teams.find(item => item.id === team.value);
+            let members = selected?.members || [];
+            if (!coordinator) members = members.filter(item => item.actor_id === me.context.actor_id);
+            assignee.replaceChildren();
+            members.forEach(member => {
+              const option = node('option', '', member.actor_id === me.context.actor_id ? 'Atribuir a mim' : `${member.actor_id.slice(0, 8)} · ${member.role}`);
+              option.value = member.actor_id; assignee.append(option);
+            });
+            if (!members.length) assignee.append(node('option', '', 'Sem membros ativos'));
+          };
+          team.addEventListener('change', updateMembers);
+          assignment.append(team, assignee);
+          updateMembers();
+          const submit = node('button', 'button secondary', 'Guardar atribuição'); submit.type = 'submit';
+          assignment.append(submit);
+          assignment.addEventListener('submit', async event => {
+            event.preventDefault(); submit.disabled = true;
+            try {
+              await request(`/api/v1/tickets/${ticket.id}/assign`, {
+                method:'POST', headers:{'Idempotency-Key':operationKey(assignment)},
+                body:JSON.stringify({expected_version:ticket.row_version, team_id:team.value, assignee_id:assignee.value})
+              });
+              say('Atribuição guardada.'); await openTicket(ticket.id); await loadTickets();
+            } catch (error) { say(error.message, true); }
+            finally { submit.disabled = false; }
+          });
+          panel.append(assignment);
+        }
+
+        const action = ticket.status === 'triaged' ? 'start' : ticket.status === 'in_progress' ? 'ask_customer' : null;
+        if (action) {
+          const transition = node('form', 'staff-form');
+          if (action === 'ask_customer') {
+            const hint = node('p', 'empty', 'Publique primeiro uma pergunta ao cliente.'); transition.append(hint);
+          }
+          const submit = node('button', 'button secondary', action === 'start' ? 'Começar tratamento' : 'Aguardar resposta do cliente');
+          submit.type = 'submit'; transition.append(submit);
+          transition.addEventListener('submit', async event => {
+            event.preventDefault(); submit.disabled = true;
+            try {
+              await request(`/api/v1/tickets/${ticket.id}/transition`, {
+                method:'POST', headers:{'Idempotency-Key':operationKey(transition)},
+                body:JSON.stringify({expected_version:ticket.row_version, action})
+              });
+              say('Estado do pedido atualizado.'); await openTicket(ticket.id); await loadTickets();
+            } catch (error) { say(error.message, true); }
+            finally { submit.disabled = false; }
+          });
+          panel.append(transition);
+        }
+        if (ticket.status === 'in_progress') {
+          const resolve = node('form', 'staff-form');
+          resolve.append(node('label', 'reply-label', 'Resumo da resolução'));
+          const summary = document.createElement('textarea'); summary.rows = 3; summary.minLength = 10; summary.maxLength = 20000;
+          const submit = node('button', 'button secondary', 'Resolver pedido'); submit.type = 'submit';
+          resolve.append(summary, submit);
+          resolve.addEventListener('submit', async event => {
+            event.preventDefault(); submit.disabled = true;
+            try {
+              await request(`/api/v1/tickets/${ticket.id}/transition`, {
+                method:'POST', headers:{'Idempotency-Key':operationKey(resolve)},
+                body:JSON.stringify({expected_version:ticket.row_version, action:'resolve', resolution_summary:summary.value})
+              });
+              say('Pedido resolvido.'); await openTicket(ticket.id); await loadTickets();
+            } catch (error) { say(error.message, true); }
+            finally { submit.disabled = false; }
+          });
+          panel.append(resolve);
+        }
+        return panel;
+      };
+      const renderTicket = ticket => {
+        currentTicket = ticket;
+        emptyDetail.hidden = true;
+        detail.hidden = false;
+        detail.replaceChildren();
+        const heading = node('div', 'detail-heading');
+        const titleBlock = node('div', 'detail-title');
+        titleBlock.append(node('p', 'eyebrow', `PEDIDO ${ticket.id.slice(0, 8).toUpperCase()}`));
+        titleBlock.append(node('h2', '', ticket.subject));
+        titleBlock.append(node('div', 'detail-meta', `${statusLabel(ticket.status)} · versão ${ticket.row_version}`));
+        heading.append(titleBlock);
+        detail.append(heading);
+
+        const thread = node('section', 'thread');
+        thread.setAttribute('aria-label', 'Histórico do pedido');
+        ticket.messages.forEach(message => {
+          const card = node('article', `message-card${message.kind === 'internal' ? ' internal-message' : ''}`);
+          const meta = node('div', 'message-meta');
+          meta.append(node('span', 'message-author', message.kind === 'internal' ? 'Nota interna' : 'Conversa'));
+          meta.append(node('time', '', dateLabel(message.created_at)));
+          card.append(meta, node('p', 'message-body', message.body));
+          thread.append(card);
+        });
+        if (!ticket.messages.length) thread.append(node('p', 'empty', 'Ainda não há mensagens neste pedido.'));
+        detail.append(thread);
+
+        const teamControls = buildStaffControls(ticket);
+        if (teamControls) detail.append(teamControls);
+        if (ticket.can_reply) detail.append(buildDraftForm(ticket, 'public'));
+        if (ticket.can_add_internal_note) detail.append(buildDraftForm(ticket, 'internal'));
+      };
+      const openTicket = async id => {
+        try { renderTicket(await request(`/api/v1/tickets/${id}`)); }
+        catch (error) { say(error.message, true); }
+      };
+      const accountSelect = document.getElementById('account-id');
+      fillSelect(accountSelect, me.accounts || [], 'Escolher empresa');
+      fillSelect(document.getElementById('category-id'), me.categories || [], 'Escolher categoria');
+      const showDialog = () => dialog.showModal();
+      const closeDialog = () => dialog.close();
+      document.getElementById('new-ticket-toggle').addEventListener('click', showDialog);
+      document.getElementById('close-new-ticket').addEventListener('click', closeDialog);
+      document.getElementById('cancel-new-ticket').addEventListener('click', closeDialog);
+      document.getElementById('ticket-search').addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => loadTickets(), 200);
+      });
+      document.getElementById('load-more').addEventListener('click', () => loadTickets({append:true}));
+      document.getElementById('new-ticket-form').addEventListener('submit', async event => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        const payload = {
+          account_id:form.get('account_id'), subject:form.get('subject'), body:form.get('body'),
+          visibility:form.get('visibility'), category_id:form.get('category_id') || null
+        };
+        try {
+          const created = await request('/api/v1/tickets', {
+            method:'POST', headers:{'Idempotency-Key':createIdempotencyKey}, body:JSON.stringify(payload)
+          });
+          closeDialog();
+          event.currentTarget.reset();
+          createIdempotencyKey = crypto.randomUUID();
+          say('Pedido criado. A equipa recebe-o na fila de triagem.');
+          await loadTickets();
+          await openTicket(created.id);
+        } catch (error) { say(error.message, true); }
+      });
+      loadTickets();
+    })();
+  </script>
+</body>
+</html>

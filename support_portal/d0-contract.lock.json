@@ -1,10 +1,16 @@
 {
   "source_repository": "katatua/gravit-workspace-cloud",
   "source_pull_request": 3479,
-  "source_commit": "2b33272c8287d2ce5e52da96bb20f45635be1c2c",
-  "schema_path": "packages/sovharn-apps-core/contracts/request-context.schema.json",
-  "state": "draft_not_published",
-  "consumer": "support_portal.context.RequestContext",
-  "failure_mode": "fail_closed",
+  "source_commit": "72c22b87c4989dc50749087184d34cacb81127c4",
+  "package_version": "0.1.0",
+  "request_context_schema_path": "packages/sovharn-apps-core/contracts/request-context.v1.schema.json",
+  "request_context_schema_blob_sha": "b5a47c322ad71638ad9ba6b888449a7c946a269c",
+  "destinations_manifest_path": "packages/sovharn-apps-core/contracts/destinations.v1.json",
+  "destinations_manifest_blob_sha": "0a8c9e8eb2a1622f3001a007303d657bdbea7889",
+  "application_id": "apoio",
+  "test_host": "apoio-testes.sovharn.com",
+  "destination_state": "PLANNED",
+  "contract_state": "draft_not_published",
+  "identity_connected": false,
   "production_usable": false
 }
