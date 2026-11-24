@@ -5,7 +5,8 @@ from datetime import datetime
 from hashlib import sha256
 import json
 from typing import Any
-from uuid import UUID, uuid4
+import re
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from .context import RequestContext
 from .database import PostgresDatabase
@@ -13,6 +14,7 @@ from .domain import (
     ActorContext, ActorKind, ChangeApproval, Conflict, Forbidden, Message,
     MessageKind, NotFound, Priority, PreconditionFailed, Role, ScanState,
     Ticket, TicketStatus, TransitionAction, ValidationError, Visibility,
+    ChangeRequestUnavailable,
     assign_ticket, assert_expected_version, authorized_page,
     can_submit_change, canonical_payload_digest, check_idempotent_replay,
     customer_export_surface,
@@ -106,6 +108,43 @@ def _as_json(value: Any) -> Any:
         except json.JSONDecodeError:
             return value
     return value
+
+
+def _validated_change_readback(value: Any, *, expected_id: str, expected_body: str | None = None) -> dict[str, Any]:
+    fields = {"id", "body", "revision", "content_hash", "state"}
+    if not isinstance(value, dict) or set(value) != fields:
+        raise ChangeRequestUnavailable("O serviço não devolveu um recibo de evolução válido.")
+    try:
+        canonical_id = str(UUID(value["id"]))
+    except (ValueError, TypeError, AttributeError):
+        raise ChangeRequestUnavailable("O serviço não devolveu um recibo de evolução válido.") from None
+    body, revision = value["body"], value["revision"]
+    content_hash, state = value["content_hash"], value["state"]
+    if (canonical_id != expected_id or not isinstance(body, str)
+        or not isinstance(revision, int) or isinstance(revision, bool) or revision < 1
+        or not isinstance(content_hash, str) or re.fullmatch(r"[0-9a-f]{64}", content_hash) is None
+        or not isinstance(state, str) or not state):
+        raise ChangeRequestUnavailable("O serviço não devolveu um recibo de evolução válido.")
+    try:
+        body.encode("utf-8")
+        state.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ChangeRequestUnavailable("O serviço não devolveu um recibo de evolução válido.") from None
+    if expected_body is not None and body != expected_body:
+        raise ChangeRequestUnavailable("O texto confirmado pelo serviço não corresponde ao pedido.")
+    return {"id": canonical_id, "body": body, "revision": revision,
+            "content_hash": content_hash, "state": state}
+
+
+def _change_request_port_failure(error: Exception, *, not_found_is_empty: bool = False) -> bool:
+    status = getattr(error, "http_status", None)
+    if not_found_is_empty and status == 404:
+        return True
+    if status == 409:
+        raise Conflict("O pedido de evolução entrou em conflito no serviço externo.") from None
+    if status == 412:
+        raise PreconditionFailed("O pedido de evolução mudou no serviço externo.") from None
+    raise ChangeRequestUnavailable("O serviço de pedidos de evolução está temporariamente indisponível.") from None
 
 
 class PostgresSupportStore:
@@ -269,6 +308,168 @@ class PostgresSupportStore:
             response["can_reply"] = self._can_reply(actor, model)
             response["can_add_internal_note"] = self._can_add_note(actor, model)
             return response
+
+    def propose_change_request(
+        self, context: RequestContext, *, ticket_id: UUID, text: str,
+        idempotency_key: str, port: Any | None,
+    ) -> dict[str, Any]:
+        if port is None:
+            raise ChangeRequestUnavailable("A ligação de pedidos de evolução não está configurada.")
+        if not isinstance(text, str):
+            raise ValidationError("O texto do pedido de evolução é inválido.")
+        text = text.strip()
+        if not 1 <= len(text) <= 12_000:
+            raise ValidationError("O texto do pedido de evolução deve ter entre 1 e 12000 caracteres.")
+        try:
+            text.encode("utf-8")
+            client_key = str(UUID(idempotency_key))
+        except (UnicodeEncodeError, ValueError, TypeError, AttributeError) as exc:
+            raise ValidationError("O texto ou a chave do pedido de evolução é inválido.") from exc
+        request_id = str(uuid5(NAMESPACE_URL, json.dumps([
+            "support-tickets/change-request/v1", str(context.owner_org_id),
+            context.application_id, str(context.installation_id),
+            str(context.environment_id), context.environment_kind,
+            str(context.data_tenant_id), str(context.actor_id), str(ticket_id), client_key,
+        ], ensure_ascii=False, separators=(",", ":"))))
+        digest = canonical_payload_digest({
+            "operation": "propose_change_request", "ticket_id": ticket_id, "text": text,
+        })
+        prepare_body = {"ticket_id": str(ticket_id), "request_id": request_id, "state": "reconciling"}
+
+        # Persist the deterministic external UUID before the side effect. A
+        # timeout leaves a durable intent; a retry reads this UUID first.
+        with self.database.transaction(context) as cursor:
+            actor = _actor(cursor, context)
+            record = self._load_ticket(cursor, ticket_id, for_update=True)
+            if record is None:
+                raise NotFound("Pedido não encontrado.")
+            current = _ticket(record)
+            require_visible_ticket(actor, current)
+            if not self._can_add_note(actor, current):
+                raise Forbidden("Só a equipa autorizada pode propor uma alteração de software.")
+            saved = self._receipt(cursor, context, "change_request_prepare", client_key, digest)
+            if saved is None:
+                cursor.execute(
+                    """INSERT INTO support_portal.ticket_change_link
+                       (id, owner_org_id, application_id, installation_id, environment_id,
+                        environment_kind, tenant_id, ticket_id, change_request_ref, created_by)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (uuid4(), context.owner_org_id, context.application_id,
+                     context.installation_id, context.environment_id, context.environment_kind,
+                     context.data_tenant_id, ticket_id, request_id, context.actor_id),
+                )
+                self._save_receipt(cursor, context, "change_request_prepare", client_key,
+                                   digest, 202, prepare_body, ticket_id)
+            else:
+                if not isinstance(saved, dict) or saved.get("ticket_id") != str(ticket_id):
+                    raise Conflict("O recibo de evolução local não corresponde ao pedido.")
+                try:
+                    request_id = str(UUID(saved.get("request_id", "")))
+                except (ValueError, TypeError, AttributeError):
+                    raise ChangeRequestUnavailable("O recibo local do pedido de evolução está inválido.") from None
+
+        # Always check for a lost successful POST first. Re-submission uses the
+        # exact same UUID and text, so SH Connect returns its idempotent result.
+        try:
+            observed = port.read_change_request(
+                installation_id=str(context.installation_id), request_id=request_id,
+            )
+        except Exception as exc:
+            if _change_request_port_failure(exc, not_found_is_empty=True):
+                observed = None
+            else:
+                raise
+        if observed is None:
+            try:
+                submitted = port.propose_change_request(
+                    installation_id=str(context.installation_id), text=text,
+                    idempotency_key=request_id,
+                )
+            except Exception as exc:
+                _change_request_port_failure(exc)
+                raise
+            _validated_change_readback(submitted, expected_id=request_id, expected_body=text)
+            try:
+                observed = port.read_change_request(
+                    installation_id=str(context.installation_id), request_id=request_id,
+                )
+            except Exception as exc:
+                _change_request_port_failure(exc)
+                raise
+        readback = _validated_change_readback(observed, expected_id=request_id, expected_body=text)
+        return self._record_change_request_readback(
+            context, ticket_id=ticket_id, request_id=request_id, readback=readback,
+        )
+
+    def read_change_request(
+        self, context: RequestContext, *, ticket_id: UUID, request_id: UUID, port: Any | None,
+    ) -> dict[str, Any]:
+        if port is None:
+            raise ChangeRequestUnavailable("A ligação de pedidos de evolução não está configurada.")
+        request_id = str(request_id)
+        with self.database.transaction(context) as cursor:
+            actor = _actor(cursor, context)
+            record = self._load_ticket(cursor, ticket_id)
+            if record is None:
+                raise NotFound("Pedido não encontrado.")
+            current = _ticket(record)
+            require_visible_ticket(actor, current)
+            if not self._can_add_note(actor, current):
+                raise Forbidden("Só a equipa autorizada pode consultar este pedido de evolução.")
+            cursor.execute(
+                """SELECT 1 FROM support_portal.ticket_change_link
+                   WHERE ticket_id=%s AND change_request_ref=%s""", (ticket_id, request_id),
+            )
+            if cursor.fetchone() is None:
+                raise NotFound("Pedido de evolução não encontrado.")
+        try:
+            raw = port.read_change_request(
+                installation_id=str(context.installation_id), request_id=request_id,
+            )
+        except Exception as exc:
+            _change_request_port_failure(exc)
+            raise
+        readback = _validated_change_readback(raw, expected_id=request_id)
+        return self._record_change_request_readback(
+            context, ticket_id=ticket_id, request_id=request_id, readback=readback,
+        )
+
+    def _record_change_request_readback(
+        self, context: RequestContext, *, ticket_id: UUID, request_id: str,
+        readback: dict[str, Any],
+    ) -> dict[str, Any]:
+        response = {"ticket_id": str(ticket_id), "change_request": readback}
+        digest = canonical_payload_digest(response)
+        receipt_key = str(uuid5(NAMESPACE_URL, json.dumps([
+            "support-tickets/change-request-readback/v1", str(context.owner_org_id),
+            context.application_id, str(context.installation_id), str(context.environment_id),
+            context.environment_kind, str(context.data_tenant_id), str(context.actor_id),
+            str(ticket_id), request_id, readback["revision"], readback["content_hash"],
+            readback["state"],
+        ], ensure_ascii=False, separators=(",", ":"))))
+        with self.database.transaction(context) as cursor:
+            actor = _actor(cursor, context)
+            record = self._load_ticket(cursor, ticket_id, for_update=True)
+            if record is None:
+                raise NotFound("Pedido não encontrado.")
+            current = _ticket(record)
+            require_visible_ticket(actor, current)
+            if not self._can_add_note(actor, current):
+                raise Forbidden("Só a equipa autorizada pode guardar o recibo deste pedido.")
+            cursor.execute(
+                """SELECT 1 FROM support_portal.ticket_change_link
+                   WHERE ticket_id=%s AND change_request_ref=%s""", (ticket_id, request_id),
+            )
+            if cursor.fetchone() is None:
+                raise NotFound("Pedido de evolução não encontrado.")
+            saved = self._receipt(cursor, context, "change_request_readback", receipt_key, digest)
+            if saved is None:
+                self._save_receipt(cursor, context, "change_request_readback", receipt_key,
+                                   digest, 200, response, ticket_id)
+                return response
+            if saved != response:
+                raise Conflict("O recibo de leitura do pedido não coincide.")
+            return saved
 
     def create_ticket(
         self,

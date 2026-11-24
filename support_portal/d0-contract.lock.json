@@ -1,7 +1,7 @@
 {
   "source_repository": "katatua/gravit-workspace-cloud",
   "source_pull_request": 3479,
-  "source_commit": "fd6ef9be4c2ba50e4921d086541288ee00dc3179",
+  "source_commit": "0e68980c2cb73b1549ba0f95c5e1cf1e870a2c32",
   "scanner_contract_path": "packages/sovharn-apps-core/src/sovharn_apps_core/files.py",
   "scanner_contract_blob_sha": "01591270a7e07d4c6feb515e641ed42a462934ea",
   "file_assets_sql_path": "packages/sovharn-apps-core/sql/002_common_records.sql",
@@ -32,5 +32,23 @@
   "destination_state": "PLANNED",
   "contract_state": "draft_not_published",
   "identity_connected": false,
-  "production_usable": false
+  "production_usable": false,
+  "change_request_port_path": "packages/sovharn-apps-core/src/sovharn_apps_core/sh_connect.py",
+  "change_request_port_blob_sha": "c392c2a72b272b9c57fdcdd4c99ca60713caed6c",
+  "change_request_port_contract": {
+    "methods": [
+      "propose_change_request(*, installation_id: str, text: str, idempotency_key: str) -> ChangeRequestReadback",
+      "read_change_request(*, installation_id: str, request_id: str) -> ChangeRequestReadback"
+    ],
+    "readback_fields": [
+      "id",
+      "body",
+      "revision",
+      "content_hash",
+      "state"
+    ],
+    "approval_exposed": false,
+    "adapter_injected_at_runtime": true,
+    "package_installability_proven": false
+  }
 }

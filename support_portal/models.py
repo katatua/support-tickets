@@ -40,6 +40,10 @@ class PriorityInput(StrEnum):
     URGENT = "urgent"
 
 
+class ChangeRequestInput(StrictModel):
+    text: str = Field(min_length=1, max_length=12_000)
+
+
 class CreateTicketInput(StrictModel):
     account_id: UUID
     subject: str = Field(min_length=5, max_length=180)

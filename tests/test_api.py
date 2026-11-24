@@ -5,12 +5,13 @@ import unittest
 
 from support_portal.api import create_app
 from support_portal.context import RequestContext
-from support_portal.domain import NotFound
+from support_portal.domain import Conflict, NotFound
 
 
 class FakeStore:
     def __init__(self):
         self.calls = []
+        self.change_receipts = []
 
     def me(self, context):
         self.calls.append(("me", context))
@@ -31,6 +32,31 @@ class FakeStore:
         self.calls.append(("get_ticket", context, ticket_id, public_only))
         raise NotFound("Pedido não encontrado.")
 
+    def propose_change_request(self, context, *, ticket_id, text, idempotency_key, port):
+        self.calls.append(("propose_change_request", context, ticket_id, text, idempotency_key))
+        key = (str(context.actor_id), str(ticket_id), idempotency_key)
+        for saved_text, saved_result, saved_key in self.change_receipts:
+            if saved_key == key:
+                if saved_text != text:
+                    raise Conflict("IDEMPOTENCY_CONFLICT: a mesma chave foi usada com conteúdo diferente.")
+                return saved_result
+        proposal = port.propose_change_request(
+            installation_id=str(context.installation_id), text=text,
+            idempotency_key=idempotency_key,
+        )
+        readback = port.read_change_request(
+            installation_id=str(context.installation_id), request_id=proposal["id"],
+        )
+        result = {"ticket_id": str(ticket_id), "change_request": readback}
+        self.change_receipts.append((text, result, key))
+        return result
+
+    def read_change_request(self, context, *, ticket_id, request_id, port):
+        self.calls.append(("read_change_request", context, ticket_id, request_id))
+        return {"ticket_id": str(ticket_id), "change_request": port.read_change_request(
+            installation_id=str(context.installation_id), request_id=str(request_id),
+        )}
+
     def assistant_read(self, context, ticket_id):
         self.calls.append(("assistant_read", context, ticket_id))
         return {"id": str(ticket_id), "messages": [{"body": "Resposta pública"}]}
@@ -46,6 +72,23 @@ class FakeStore:
     def transition(self, context, **kwargs):
         self.calls.append(("transition", context, kwargs))
         return {"ticket_id": str(kwargs["ticket_id"]), "status": "in_progress", "row_version": 4}
+
+
+class FakeChangeRequestPort:
+    def __init__(self):
+        self.calls = []
+        self.requests = {}
+
+    def propose_change_request(self, *, installation_id, text, idempotency_key):
+        self.calls.append(("propose", installation_id, text, idempotency_key))
+        record = {"id": idempotency_key, "body": text.strip(), "revision": 1,
+                  "content_hash": "a" * 64, "state": "submitted"}
+        self.requests[idempotency_key] = record
+        return record
+
+    def read_change_request(self, *, installation_id, request_id):
+        self.calls.append(("read", installation_id, request_id))
+        return self.requests[request_id]
 
 
 def context(**changes):
@@ -167,6 +210,39 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 422)
         self.assertEqual(self.store.calls, [])
+
+    def test_change_request_route_fails_closed_without_injected_port(self):
+        response = self.client.post(
+            f"/api/v1/tickets/{uuid4()}/change-requests",
+            headers={**self.host, "Idempotency-Key": str(uuid4())},
+            json={"text": "Adicionar exportação CSV."},
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(self.store.calls, [])
+
+    def test_change_request_proposal_replay_conflict_and_readback_use_fake_port(self):
+        port = FakeChangeRequestPort()
+        self.app.config["CHANGE_REQUEST_PORT"] = port
+        ticket_id, key = uuid4(), str(uuid4())
+        path = f"/api/v1/tickets/{ticket_id}/change-requests"
+        first = self.client.post(path, headers={**self.host, "Idempotency-Key": key},
+                                 json={"text": "Adicionar exportação CSV."})
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(first.json["change_request"]["id"], key)
+        self.assertEqual([call[0] for call in port.calls], ["propose", "read"])
+        replay = self.client.post(path, headers={**self.host, "Idempotency-Key": key},
+                                  json={"text": "Adicionar exportação CSV."})
+        self.assertEqual(replay.status_code, 201)
+        self.assertEqual(replay.json, first.json)
+        self.assertEqual(len(port.calls), 2)
+        conflict = self.client.post(path, headers={**self.host, "Idempotency-Key": key},
+                                    json={"text": "Alterar outra coisa."})
+        self.assertEqual(conflict.status_code, 409)
+        self.assertEqual(len(port.calls), 2)
+        readback = self.client.get(f"{path}/{key}", headers=self.host)
+        self.assertEqual(readback.status_code, 200)
+        self.assertEqual(readback.json["change_request"]["id"], key)
+        self.assertEqual(port.calls[-1][0], "read")
 
     def test_triage_assignment_and_transition_routes_forward_expected_versions(self):
         ticket_id = uuid4()

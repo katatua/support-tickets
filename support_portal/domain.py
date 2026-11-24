@@ -44,6 +44,11 @@ class ValidationError(DomainError):
     status_code = 422
 
 
+class ChangeRequestUnavailable(DomainError):
+    code = "CHANGE_REQUEST_UNAVAILABLE"
+    status_code = 503
+
+
 class ActorKind(StrEnum):
     USER = "user"
     SERVICE = "service"

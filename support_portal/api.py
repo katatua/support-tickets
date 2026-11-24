@@ -21,10 +21,11 @@ from .domain import (
 )
 from .models import (
     AssignTicketInput, AssistantReadTicketInput, AssistantSearchInput,
-    CreateTicketInput, MessageKindInput, PublishDraftInput, SaveDraftInput,
+    ChangeRequestInput, CreateTicketInput, MessageKindInput, PublishDraftInput, SaveDraftInput,
     TransitionActionInput, TransitionTicketInput, TriageTicketInput,
     UpdateDraftInput,
 )
+from .change_requests import ShConnectChangeRequestPort
 from .database import DatabaseUnavailable
 from .repository import PostgresSupportStore, decode_cursor
 
@@ -67,16 +68,27 @@ def _required_idempotency_key() -> str:
     return value
 
 
+def _required_change_request_key() -> str:
+    value = request.headers.get("Idempotency-Key", "").strip()
+    try:
+        return str(UUID(value))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise ValidationError("Envie uma chave Idempotency-Key UUID válida.") from exc
+
+
 def create_app(
     *,
     store: Any | None = None,
     context_resolver: Callable[[], RequestContext] | None = None,
     allowed_hosts: dict[str, str] | None = None,
+    change_request_port: ShConnectChangeRequestPort | None = None,
 ) -> Flask:
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.config["SUPPORT_STORE"] = store or PostgresSupportStore()
     app.config["CONTEXT_RESOLVER"] = context_resolver or _trusted_context_from_wsgi
     app.config["EXPECTED_HOSTS"] = allowed_hosts or _EXPECTED_HOSTS
+    # Injected by the host; this app creates no D0 adapter or credential.
+    app.config["CHANGE_REQUEST_PORT"] = change_request_port
 
     def require_context() -> RequestContext:
         try:
@@ -205,6 +217,29 @@ def create_app(
     def get_ticket(ticket_id: UUID):
         context = require_context()
         return jsonify(app.config["SUPPORT_STORE"].get_ticket(context, ticket_id))
+
+    @app.post("/api/v1/tickets/<uuid:ticket_id>/change-requests")
+    def propose_change_request(ticket_id: UUID):
+        context = require_context()
+        data = _validated(ChangeRequestInput, _json_body())
+        port = app.config.get("CHANGE_REQUEST_PORT")
+        if port is None or not callable(getattr(port, "propose_change_request", None)) or not callable(getattr(port, "read_change_request", None)):
+            raise _http_error(503, "A ligação de pedidos de evolução está temporariamente indisponível.")
+        result = app.config["SUPPORT_STORE"].propose_change_request(
+            context, ticket_id=ticket_id, text=data.text,
+            idempotency_key=_required_change_request_key(), port=port,
+        )
+        return jsonify(result), 201
+
+    @app.get("/api/v1/tickets/<uuid:ticket_id>/change-requests/<uuid:request_id>")
+    def read_change_request(ticket_id: UUID, request_id: UUID):
+        context = require_context()
+        port = app.config.get("CHANGE_REQUEST_PORT")
+        if port is None or not callable(getattr(port, "read_change_request", None)):
+            raise _http_error(503, "A ligação de pedidos de evolução está temporariamente indisponível.")
+        return jsonify(app.config["SUPPORT_STORE"].read_change_request(
+            context, ticket_id=ticket_id, request_id=request_id, port=port,
+        ))
 
     @app.get("/api/v1/tickets/<uuid:ticket_id>/export")
     def export_ticket(ticket_id: UUID):

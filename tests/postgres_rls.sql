@@ -50,7 +50,7 @@ END
 $$;
 GRANT USAGE ON SCHEMA support_portal TO apoio_runtime_test;
 GRANT SELECT ON ALL TABLES IN SCHEMA support_portal TO apoio_runtime_test;
-GRANT INSERT ON support_portal.ticket_attachment TO apoio_runtime_test;
+GRANT INSERT ON support_portal.ticket_attachment, support_portal.ticket_change_link TO apoio_runtime_test;
 
 INSERT INTO support_portal.customer_account
   (id, owner_org_id, application_id, installation_id, environment_id, tenant_id, name, created_by)
@@ -139,6 +139,15 @@ VALUES
    'tenant:beta', '51000000-0000-4000-8000-000000000002',
    'person:bruno', NULL, 'Ticket Beta sintético', 'new', 'requester',
    'person:bruno');
+
+INSERT INTO support_portal.ticket_change_link
+  (id, owner_org_id, application_id, installation_id, environment_id, environment_kind,
+   tenant_id, ticket_id, change_request_ref, created_by)
+VALUES
+  ('5e000000-0000-4000-8000-000000000001', 'org:apoio', 'apoio',
+   'install:apoio', 'environment:shared', 'test', 'tenant:alpha',
+   '59000000-0000-4000-8000-000000000001',
+   '5e000000-0000-4000-8000-000000000101', 'person:rita');
 
 INSERT INTO support_portal.ticket_message
   (id, owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id,
@@ -291,6 +300,30 @@ BEGIN
   END IF;
 END
 $$;
+
+DO $apoio_customer_change_link$
+DECLARE visible_count integer;
+BEGIN
+  SELECT count(*) INTO visible_count FROM support_portal.ticket_change_link
+   WHERE ticket_id = '59000000-0000-4000-8000-000000000001';
+  IF visible_count <> 0 THEN
+    RAISE EXCEPTION 'customer can read an internal change request reference';
+  END IF;
+  BEGIN
+    INSERT INTO support_portal.ticket_change_link
+      (id, owner_org_id, application_id, installation_id, environment_id, environment_kind,
+       tenant_id, ticket_id, change_request_ref, created_by)
+    VALUES
+      ('5e000000-0000-4000-8000-000000000002', 'org:apoio', 'apoio',
+       'install:apoio', 'environment:shared', 'test', 'tenant:alpha',
+       '59000000-0000-4000-8000-000000000001',
+       '5e000000-0000-4000-8000-000000000102', 'person:ana');
+    RAISE EXCEPTION 'customer inserted an internal change request reference';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+END
+$apoio_customer_change_link$;
 
 RESET ROLE;
 UPDATE support_portal.account_member

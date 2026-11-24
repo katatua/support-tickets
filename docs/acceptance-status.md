@@ -26,7 +26,7 @@ nem scanner/FileAsset real.
 | APO-AT-008 | Anexo `CLEAN` sem atestação D0 v2 é recusado no domínio; SQL rejeita CLEAN e RLS bloqueia inserts runtime. A interface desativa uploads e não aceita bytes. | FileAsset privado, verificação HMAC, validação de conteúdo e fluxo de upload inválido. |
 | APO-AT-009 | Ferramenta `read_ticket` é tipada e só lê via serviço autorizado; contexto do assistente inclui mensagens públicas. | Ligar modelo real e provar o payload completo enviado, sem notas internas. |
 | APO-AT-010 | Revisão aprovada antiga ou digest diferente não pode ser admitida. | Recibo oficial de admissão do serviço comum. |
-| APO-AT-011 | Sem integração de submissão ou reconciliação declarada. | Perder resposta de submissão real e reconciliar pelo recibo sem tarefa duplicada. |
+| APO-AT-011 | API staff-only usa port estrutural fake; grava UUID/link e recibo `reconciling` antes do efeito, lê primeiro pelo mesmo UUID e persiste readback append-only. Prova fake HTTP cobre replay/conflito; SQL/RLS prova que cliente não lê/cria links. | Package/runtime SH Connect real, identidade autenticada, credencial por instalação e reconciliação de timeout no serviço externo. |
 | APO-AT-012 | `CLAIMED_DONE` é rotulado como aguardando confirmação, nunca como produção. | Confirmar no shell/runtime partilhado. |
 | APO-AT-013 | A regra e API de apoio não chamam Sovharn nem modelo; teste de domínio cobre indisponibilidade do serviço comum. Existe procedimento de fallback manual. | Repetir com Sovharn e fornecedor de modelo desligados em runtime persistente. |
 | APO-AT-014 | Fixture RLS revoga a leitura antiga de tickets, mensagens e anexos após retirar membership. | URLs de ficheiro e exports emitidos antes da revogação; serviço FileAsset ainda não ligado. |
@@ -51,7 +51,7 @@ e a aplicação ainda não verifica a assinatura HMAC v2.
 ## D0 fixado
 
 `support_portal/d0-contract.lock.json` aponta para o head atual consultado do PR draft
-`katatua/gravit-workspace-cloud#3479`: `fd6ef9be4c2ba50e4921d086541288ee00dc3179`.
+`katatua/gravit-workspace-cloud#3479`: `0e68980c2cb73b1549ba0f95c5e1cf1e870a2c32`.
 O schema `request-context.v1.schema.json` mantém o blob SHA
 `b5a47c322ad71638ad9ba6b888449a7c946a269c`; o manifesto de destinos mantém
 `0a8c9e8eb2a1622f3001a007303d657bdbea7889`. O contrato ScannerVerdict v2 está em
@@ -61,6 +61,9 @@ bytes e HMAC válido por chave confiável; o SQL FileAsset v2 exige metadados de
 atestação (blob `dec6110b4b58c4e021f751e8eea9da72e5588f75`). Apoio ainda não consome
 esse adapter. O PR D0 continua draft, sem middleware de identidade, instalação Apoio
 ou readback SH Connect; o resolver desta app falha fechado sem objeto confiável WSGI.
+O port tipado `ShConnectChangeRequestPort` e os campos de readback estão no blob
+`c392c2a72b272b9c57fdcdd4c99ca60713caed6c` de `sh_connect.py`; esta app não copia
+o adapter HTTP nem instala o package. Só consome o port injectado pelo host.
 Os IDs são strings opacas no adapter e no SQL, sem limite local de comprimento e com
 validação de whitespace nas extremidades consistente com D0, mantendo o escopo completo
 owner/app/installation/environment/environment_kind/tenant. O contexto
