@@ -31,6 +31,7 @@ from support_portal.domain import (
     can_submit_change,
     canonical_payload_digest,
     check_idempotent_replay,
+    customer_export_surface,
     delivery_label,
     require_visible_ticket,
     notification_payload,
@@ -187,6 +188,7 @@ class DomainTests(unittest.TestCase):
             Message(uuid4(), TENANT_A, TICKET_ID, RITA, MessageKind.INTERNAL, "private-phrase secret diagnosis", uuid4(), NOW),
         )
         surface = customer_ticket_surface(customer(), ticket(), messages)
+        export = customer_export_surface(agent(), ticket(), messages)
         assistant = assistant_ticket_context(agent(), ticket(), messages)
         public_results = authorized_search(
             [ticket()], messages, actor=customer(), query="shipping"
@@ -197,8 +199,9 @@ class DomainTests(unittest.TestCase):
         payload = notification_payload(
             ticket=ticket(), recipient_actor_id=ANA, event="public_reply"
         )
-        all_safe_surfaces = repr((surface, assistant, public_results, secret_results, payload))
+        all_safe_surfaces = repr((surface, export, assistant, public_results, secret_results, payload))
         self.assertEqual([message.body for message in surface.messages], ["Public shipping update."])
+        self.assertEqual([message.body for message in export.messages], ["Public shipping update."])
         self.assertEqual([message.body for message in assistant.messages], ["Public shipping update."])
         self.assertEqual(len(public_results), 1)
         self.assertEqual(secret_results, ())

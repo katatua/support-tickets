@@ -284,6 +284,13 @@ def assistant_ticket_context(
     return customer_ticket_surface(actor, ticket, messages)
 
 
+def customer_export_surface(
+    actor: ActorContext, ticket: Ticket, messages: Iterable[Message]
+) -> TicketSurface:
+    """Build an export projection that cannot contain internal conversation data."""
+    return customer_ticket_surface(actor, ticket, messages)
+
+
 def notification_payload(
     *, ticket: Ticket, recipient_actor_id: UUID, event: str
 ) -> Mapping[str, str | int]:
