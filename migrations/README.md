@@ -12,7 +12,8 @@ runtime role separate from the migration owner and without BYPASSRLS.
 The migration and `tests/postgres_rls.sql` were applied to a disposable PostgreSQL
 16.15 instance. The integration script uses a non-login runtime role without
 `BYPASSRLS`, inserts only synthetic fixtures, checks customer and team views, and
-rolls the fixture transaction back. This proves the database policies in isolation;
+checks that a service actor cannot inherit a person's membership. The fixture then
+rolls its transaction back. This proves the database policies in isolation;
 it does not prove the D0 request middleware, HTTP routes, or private object storage.
 
 Run the migration and RLS proof only against a disposable database:

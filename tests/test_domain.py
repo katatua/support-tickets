@@ -167,6 +167,17 @@ class DomainTests(unittest.TestCase):
         with self.assertRaises(NotFound):
             require_visible_ticket(actor, ticket())
 
+    def test_service_actor_cannot_inherit_a_person_membership(self):
+        service = ActorContext(
+            tenant_id=TENANT_A,
+            actor_id=ANA,
+            actor_kind=ActorKind.SERVICE,
+            roles=frozenset({Role.CUSTOMER_MEMBER}),
+            account_ids=frozenset({ACCOUNT_A}),
+        )
+        with self.assertRaises(NotFound):
+            require_visible_ticket(service, ticket())
+
     def test_customer_cannot_read_requester_only_ticket(self):
         with self.assertRaises(NotFound):
             require_visible_ticket(customer(BRUNO), ticket(visibility=Visibility.REQUESTER))

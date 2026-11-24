@@ -6,7 +6,7 @@ ser repetido através do runtime comum num ambiente de testes.
 
 | Cenário | Prova atual | Falta para fechar end-to-end |
 | --- | --- | --- |
-| APO-AT-001 | `test_customer_cannot_discover_other_tenant_ticket` e prova RLS com Alfa/Beta; uma query por ticket alheio devolve o mesmo vazio que um ID inexistente. | Executar pelo shell e API autenticados. |
+| APO-AT-001 | `test_customer_cannot_discover_other_tenant_ticket` e prova RLS com Alfa/Beta; uma query por ticket alheio devolve o mesmo vazio que um ID inexistente. O RLS também recusa um service actor com o mesmo UUID de uma pessoa. | Executar pelo shell e API autenticados. |
 | APO-AT-002 | Projeção, pesquisa, contexto de assistente e payload de notificação omitem o texto interno; RLS oculta nota e anexo internos ao cliente. | Exercitar API, pesquisa persistida, exportação, notificação e ferramenta real do assistente. |
 | APO-AT-003 | Replay do mesmo payload reconhecido pelo digest canónico. | Persistir recibo durável e repetir POST após perder a resposta. |
 | APO-AT-004 | Chave igual com conteúdo diferente dá conflito 409 no domínio. | Repetir pelo endpoint transacional e provar que não houve mutação. |

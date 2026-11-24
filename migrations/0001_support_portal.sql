@@ -1,6 +1,6 @@
 -- Support portal D1 schema.
 -- D0 middleware must set transaction-local app.data_tenant_id, app.actor_id,
--- app.application_id, app.installation_id and app.environment_id from its
+-- app.actor_kind, app.application_id, app.installation_id and app.environment_id from its
 -- authenticated request context before any business query. Never accept these
 -- values from a client header or body. Runtime role must not own these tables
 -- and must not have BYPASSRLS.
@@ -34,6 +34,10 @@ AS $$ SELECT support_portal.setting_text('app.data_tenant_id')::uuid $$;
 CREATE FUNCTION support_portal.current_actor_id()
 RETURNS uuid LANGUAGE sql STABLE
 AS $$ SELECT support_portal.setting_text('app.actor_id')::uuid $$;
+
+CREATE FUNCTION support_portal.is_authenticated_person()
+RETURNS boolean LANGUAGE sql STABLE
+AS $$ SELECT support_portal.setting_text('app.actor_kind') = 'user' $$;
 
 CREATE FUNCTION support_portal.context_matches(
   p_owner_org_id uuid,
@@ -183,7 +187,7 @@ RETURNS boolean
 LANGUAGE sql
 STABLE
 AS $$
-  SELECT EXISTS (
+  SELECT support_portal.is_authenticated_person() AND EXISTS (
     SELECT 1 FROM support_portal.staff_membership m
     WHERE m.tenant_id = p_tenant_id
       AND m.actor_id = support_portal.current_actor_id()
@@ -197,7 +201,7 @@ RETURNS boolean
 LANGUAGE sql
 STABLE
 AS $$
-  SELECT EXISTS (
+  SELECT support_portal.is_authenticated_person() AND EXISTS (
     SELECT 1 FROM support_portal.account_member m
     WHERE m.tenant_id = p_tenant_id
       AND m.account_id = p_account_id
@@ -211,7 +215,7 @@ RETURNS boolean
 LANGUAGE sql
 STABLE
 AS $$
-  SELECT EXISTS (
+  SELECT support_portal.is_authenticated_person() AND EXISTS (
     SELECT 1 FROM support_portal.team_member m
     WHERE m.tenant_id = p_tenant_id
       AND m.team_id = p_team_id

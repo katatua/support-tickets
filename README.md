@@ -30,7 +30,7 @@ nem ligado à identidade; a fixação da revisão não certifica compatibilidade
 - migrations/0001_support_portal.sql cria tabelas com referências compostas e RLS.
   A aplicação deve iniciar cada transação com os valores resolvidos pelo D0 em
   app.owner_org_id, app.application_id, app.installation_id, app.environment_id,
-  app.data_tenant_id e app.actor_id. O runtime não pode ser dono das tabelas nem ter
+  app.data_tenant_id, app.actor_id e app.actor_kind. O runtime não pode ser dono das tabelas nem ter
   BYPASSRLS.
 - Mensagens internas passam por uma política de leitura separada. Anexos exigem uma
   mensagem publicada e scan_state = clean; o FileAsset original continua privado
@@ -48,7 +48,7 @@ Numa base PostgreSQL descartável: aplicar `migrations/0001_support_portal.sql` 
 
 A suíte unitária prova as regras puras. A migração e o fixture RLS foram executados em
 PostgreSQL 16.15, com um papel runtime sem `BYPASSRLS`; o fixture verifica tenants,
-mensagens internas, anexos e revogação. Isto ainda não prova isolamento HTTP real,
+mensagens internas, anexos, revogação e a rejeição de actor_kind=service. Isto ainda não prova isolamento HTTP real,
 autenticação, interface móvel, armazenamento de anexos ou integração SH Connect.
 O detalhe por cenário está em [docs/acceptance-status.md](docs/acceptance-status.md).
 

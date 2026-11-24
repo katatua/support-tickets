@@ -111,6 +111,7 @@ SELECT set_config('app.installation_id', '52000000-0000-4000-8000-000000000001',
 SELECT set_config('app.environment_id', '53000000-0000-4000-8000-000000000001', true);
 SELECT set_config('app.data_tenant_id', '54000000-0000-4000-8000-000000000002', true);
 SELECT set_config('app.actor_id', '55000000-0000-4000-8000-000000000002', true);
+SELECT set_config('app.actor_kind', 'user', true);
 DO $$
 DECLARE visible_count integer; unknown_count integer;
 BEGIN
@@ -126,6 +127,18 @@ BEGIN
   IF visible_count <> 1 THEN RAISE EXCEPTION 'Beta cannot read its own ticket'; END IF;
 END
 $$;
+SELECT set_config('app.actor_kind', 'service', true);
+DO $$
+DECLARE visible_count integer;
+BEGIN
+  SELECT count(*) INTO visible_count FROM support_portal.ticket
+    WHERE id = '59000000-0000-4000-8000-000000000002';
+  IF visible_count <> 0 THEN
+    RAISE EXCEPTION 'service actor inherited a human membership';
+  END IF;
+END
+$$;
+SELECT set_config('app.actor_kind', 'user', true);
 
 SELECT set_config('app.data_tenant_id', '54000000-0000-4000-8000-000000000001', true);
 SELECT set_config('app.actor_id', '55000000-0000-4000-8000-000000000001', true);
