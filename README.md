@@ -34,7 +34,7 @@ transaction-local.
 
 O contrato esperado está fixado em `support_portal/d0-contract.lock.json`: PR draft
 `katatua/gravit-workspace-cloud#3479`, commit
-`0e68980c2cb73b1549ba0f95c5e1cf1e870a2c32`, schema
+`ad12e19670af05c7b196352c51f5c298b60cc4db`, schema
 `packages/sovharn-apps-core/contracts/request-context.v1.schema.json` (blob
 `b5a47c322ad71638ad9ba6b888449a7c946a269c`). O contrato FileAsset usa
 `ScannerAttestation` v2 (`files.py`, blob

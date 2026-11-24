@@ -120,7 +120,7 @@ def _validated_change_readback(value: Any, *, expected_id: str, expected_body: s
         raise ChangeRequestUnavailable("O serviço não devolveu um recibo de evolução válido.") from None
     body, revision = value["body"], value["revision"]
     content_hash, state = value["content_hash"], value["state"]
-    if (canonical_id != expected_id or not isinstance(body, str)
+    if (canonical_id != expected_id or not isinstance(body, str) or len(body) > 12_000
         or not isinstance(revision, int) or isinstance(revision, bool) or revision < 1
         or not isinstance(content_hash, str) or re.fullmatch(r"[0-9a-f]{64}", content_hash) is None
         or not isinstance(state, str) or not state):
@@ -128,6 +128,8 @@ def _validated_change_readback(value: Any, *, expected_id: str, expected_body: s
     try:
         body.encode("utf-8")
         state.encode("utf-8")
+        if sha256(body.encode("utf-8")).hexdigest() != content_hash:
+            raise ChangeRequestUnavailable("O serviço não devolveu um recibo de evolução válido.")
     except UnicodeEncodeError:
         raise ChangeRequestUnavailable("O serviço não devolveu um recibo de evolução válido.") from None
     if expected_body is not None and body != expected_body:

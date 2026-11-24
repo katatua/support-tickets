@@ -6,7 +6,7 @@ substitui o runtime autenticado comum.
 
 **Não é a matriz canónica de aceite.** O ZIP e `04-Apoio.md` não foram recebidos. Os IDs APO-AT são rótulos locais provisórios, não foram mapeados contra os 231 cenários e não declaram critérios aceites. As evidências abaixo descrevem apenas provas técnicas da branch e limites observados.
 
-Nesta revisão, `python3 -m unittest discover -s tests -v` passou 40 testes e
+Nesta revisão, `python3 -m unittest discover -s tests -v` passou 43 testes e
 `python3 -m py_compile support_portal/*.py` passou. As regressões cobrem a compatibilidade
 D0 dos IDs opacos e rejeitam CLEAN sem ScannerAttestation v2 no domínio, SQL e RLS.
 A prova SQL não arrancou localmente: `initdb` não conseguiu alocar memória partilhada
@@ -26,9 +26,9 @@ nem scanner/FileAsset real.
 | APO-AT-008 | Anexo `CLEAN` sem atestação D0 v2 é recusado no domínio; SQL rejeita CLEAN e RLS bloqueia inserts runtime. A interface desativa uploads e não aceita bytes. | FileAsset privado, verificação HMAC, validação de conteúdo e fluxo de upload inválido. |
 | APO-AT-009 | Ferramenta `read_ticket` é tipada e só lê via serviço autorizado; contexto do assistente inclui mensagens públicas. | Ligar modelo real e provar o payload completo enviado, sem notas internas. |
 | APO-AT-010 | Revisão aprovada antiga ou digest diferente não pode ser admitida. | Recibo oficial de admissão do serviço comum. |
-| APO-AT-011 | API staff-only usa port estrutural fake; grava UUID/link e recibo `reconciling` antes do efeito, lê primeiro pelo mesmo UUID e persiste readback append-only. Prova fake HTTP cobre replay/conflito; SQL/RLS prova que cliente não lê/cria links. | Package/runtime SH Connect real, identidade autenticada, credencial por instalação e reconciliação de timeout no serviço externo. |
+| APO-AT-011 | A implementação grava UUID/link e recibo `reconciling` antes do efeito, lê primeiro pelo mesmo UUID e persiste readback append-only. A prova HTTP usa store/port fake e cobre replay/conflito da rota; não executa o store PostgreSQL. SQL/RLS prova que cliente não lê/cria links. | Package/runtime SH Connect real, identidade autenticada, credencial por instalação e reconciliação de timeout no serviço externo. |
 | APO-AT-012 | `CLAIMED_DONE` é rotulado como aguardando confirmação, nunca como produção. | Confirmar no shell/runtime partilhado. |
-| APO-AT-013 | A regra e API de apoio não chamam Sovharn nem modelo; teste de domínio cobre indisponibilidade do serviço comum. Existe procedimento de fallback manual. | Repetir com Sovharn e fornecedor de modelo desligados em runtime persistente. |
+| APO-AT-013 | O fluxo normal de tickets/assistente não depende de Sovharn nem de modelo. Só a ação staff-only de evolução chama o port injetado; com Sovharn ou modelo indisponíveis, o atendimento normal continua. | Repetir com Sovharn e fornecedor de modelo desligados em runtime persistente; ligação real ainda não está instalada. |
 | APO-AT-014 | Fixture RLS revoga a leitura antiga de tickets, mensagens e anexos após retirar membership. | URLs de ficheiro e exports emitidos antes da revogação; serviço FileAsset ainda não ligado. |
 | APO-AT-015 | HTML/CSS inclui layouts móveis até 390 px e campos de 16 px para evitar zoom automático. | Abrir browser real a 390 px com teclado, foco, rolagem e submissão. |
 | APO-AT-016 | Nenhuma integração externa afirmada. Lock e inventário D0 continuam em `PLANNED`. | Contrato/credenciais/readback SH Connect e evidência externa autorizada. |
@@ -51,7 +51,7 @@ e a aplicação ainda não verifica a assinatura HMAC v2.
 ## D0 fixado
 
 `support_portal/d0-contract.lock.json` aponta para o head atual consultado do PR draft
-`katatua/gravit-workspace-cloud#3479`: `0e68980c2cb73b1549ba0f95c5e1cf1e870a2c32`.
+`katatua/gravit-workspace-cloud#3479`: `ad12e19670af05c7b196352c51f5c298b60cc4db`.
 O schema `request-context.v1.schema.json` mantém o blob SHA
 `b5a47c322ad71638ad9ba6b888449a7c946a269c`; o manifesto de destinos mantém
 `0a8c9e8eb2a1622f3001a007303d657bdbea7889`. O contrato ScannerVerdict v2 está em

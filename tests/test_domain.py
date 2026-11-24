@@ -6,6 +6,7 @@ import unittest
 from uuid import UUID, uuid4
 
 from support_portal.context import ContextUnavailable, RequestContext
+from support_portal.repository import PostgresSupportStore, _validated_change_readback
 from support_portal.domain import (
     ActorContext,
     ActorKind,
@@ -29,6 +30,7 @@ from support_portal.domain import (
     authorized_search,
     authorized_page,
     can_submit_change,
+    ChangeRequestUnavailable,
     canonical_payload_digest,
     check_idempotent_replay,
     customer_export_surface,
@@ -127,6 +129,25 @@ def trusted_state(**overrides):
 
 
 class DomainTests(unittest.TestCase):
+    def test_change_request_reuses_staff_note_capability_and_validates_readback(self):
+        self.assertTrue(PostgresSupportStore._can_add_note(agent(), ticket()))
+        self.assertTrue(PostgresSupportStore._can_add_note(coordinator(), ticket()))
+        admin = ActorContext(TENANT_A, LUIS, ActorKind.USER, frozenset({Role.PLATFORM_ADMIN}))
+        self.assertTrue(PostgresSupportStore._can_add_note(admin, ticket()))
+        self.assertFalse(PostgresSupportStore._can_add_note(customer(), ticket()))
+        self.assertFalse(PostgresSupportStore._can_add_note(agent(teams=frozenset({uuid4()})), ticket()))
+        service = ActorContext(TENANT_A, "service:1", ActorKind.SERVICE, frozenset(), active=False)
+        self.assertFalse(PostgresSupportStore._can_add_note(service, ticket()))
+
+        request_id = str(uuid4())
+        body = "Adicionar exportação CSV."
+        from hashlib import sha256
+        record = {"id": request_id, "body": body, "revision": 1,
+                  "content_hash": sha256(body.encode()).hexdigest(), "state": "submitted"}
+        self.assertEqual(_validated_change_readback(record, expected_id=request_id), record)
+        with self.assertRaises(ChangeRequestUnavailable):
+            _validated_change_readback({**record, "body": "texto alterado"}, expected_id=request_id)
+
     def test_context_is_fail_closed_and_requires_exact_schema(self):
         class EmptyState:
             sovharn_context = None

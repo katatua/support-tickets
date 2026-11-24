@@ -223,7 +223,11 @@ def create_app(
         context = require_context()
         data = _validated(ChangeRequestInput, _json_body())
         port = app.config.get("CHANGE_REQUEST_PORT")
-        if port is None or not callable(getattr(port, "propose_change_request", None)) or not callable(getattr(port, "read_change_request", None)):
+        if (
+            port is None
+            or not callable(getattr(port, "propose_change_request", None))
+            or not callable(getattr(port, "read_change_request", None))
+        ):
             raise _http_error(503, "A ligação de pedidos de evolução está temporariamente indisponível.")
         result = app.config["SUPPORT_STORE"].propose_change_request(
             context, ticket_id=ticket_id, text=data.text,
