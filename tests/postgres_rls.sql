@@ -158,7 +158,7 @@ VALUES
    '5a000000-0000-4000-8000-000000000002', '5d000000-0000-4000-8000-000000000002',
    'person:rita', 'internal.pdf', 'application/pdf', 128, repeat('e', 64), 'pending');
 
-DO $
+DO $apoio_clean$
 BEGIN
   UPDATE support_portal.ticket_attachment SET scan_state = 'clean'
   WHERE id = '5c000000-0000-4000-8000-000000000001';
@@ -166,7 +166,7 @@ BEGIN
 EXCEPTION WHEN check_violation THEN
   NULL;
 END
-$;
+$apoio_clean$;
 
 INSERT INTO support_portal.ticket_message_draft
   (id, owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id,
@@ -192,7 +192,7 @@ SELECT set_config('app.environment_kind', 'test', true);
 SELECT set_config('app.data_tenant_id', 'tenant:beta', true);
 SELECT set_config('app.actor_id', 'person:bruno', true);
 SELECT set_config('app.actor_kind', 'user', true);
-DO $
+DO $apoio_upload$
 BEGIN
   INSERT INTO support_portal.ticket_attachment
     (id, owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id,
@@ -206,8 +206,8 @@ BEGIN
 EXCEPTION WHEN insufficient_privilege THEN
   NULL;
 END
-$;
-DO $
+$apoio_upload$;
+DO $$
 DECLARE visible_count integer; unknown_count integer;
 BEGIN
   SELECT count(*) INTO visible_count FROM support_portal.ticket
