@@ -1,0 +1,10 @@
+{
+  "source_repository": "katatua/gravit-workspace-cloud",
+  "source_pull_request": 3479,
+  "source_commit": "2b33272c8287d2ce5e52da96bb20f45635be1c2c",
+  "schema_path": "packages/sovharn-apps-core/contracts/request-context.schema.json",
+  "state": "draft_not_published",
+  "consumer": "support_portal.context.RequestContext",
+  "failure_mode": "fail_closed",
+  "production_usable": false
+}

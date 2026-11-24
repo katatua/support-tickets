@@ -15,10 +15,16 @@ PostgreSQL, o armazenamento privado de ficheiros, o shell autenticado, e a prova
 de SH Connect. A interface atual explica este estado e não aceita informação de
 clientes. Não configurar este ramo como serviço de produção.
 
+O contrato D0 consumido pelo resolver está fixado em
+`support_portal/d0-contract.lock.json`, na revisão de `katatua/gravit-workspace-cloud`
+#3479 (`2b33272c8287d2ce5e52da96bb20f45635be1c2c`). É um PR draft ainda não publicado
+nem ligado à identidade; a fixação da revisão não certifica compatibilidade de runtime.
+
 ## Princípios implementados
 
 - O tenant, ator, instalação e ambiente só podem chegar do contexto autenticado
-  instalado pelo middleware D0 no servidor. A app falha fechada sem ele.
+  instalado pelo middleware D0 no servidor. A app falha fechada sem ele. A revisão
+  de contrato esperada é a que consta no lock; o middleware real continua pendente.
 - support_portal.domain contém regras puras de autorização por objeto, mensagens,
   transições, idempotência, anexos, revisões aprovadas e prova de entrega.
 - migrations/0001_support_portal.sql cria tabelas com referências compostas e RLS.
@@ -44,6 +50,7 @@ A suíte unitária prova as regras puras. A migração e o fixture RLS foram exe
 PostgreSQL 16.15, com um papel runtime sem `BYPASSRLS`; o fixture verifica tenants,
 mensagens internas, anexos e revogação. Isto ainda não prova isolamento HTTP real,
 autenticação, interface móvel, armazenamento de anexos ou integração SH Connect.
+O detalhe por cenário está em [docs/acceptance-status.md](docs/acceptance-status.md).
 
 ## Próximos passos para D1
 

@@ -163,6 +163,13 @@ class TicketPage:
 
 
 @dataclass(frozen=True)
+class PublicMessageSurface:
+    id: UUID
+    body: str
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class TicketSurface:
     """Safe ticket projection for customer search, export and assistant tools."""
     id: UUID
@@ -170,7 +177,7 @@ class TicketSurface:
     status: TicketStatus
     priority: Priority
     updated_at: datetime
-    messages: tuple[Message, ...]
+    messages: tuple[PublicMessageSurface, ...]
 
 
 @dataclass(frozen=True)
@@ -224,7 +231,12 @@ def customer_ticket_surface(
     """Build a customer-safe view. Internal notes are omitted even for staff callers."""
     require_visible_ticket(actor, ticket)
     public_messages = tuple(
-        message for message in visible_messages(actor, ticket, messages)
+        PublicMessageSurface(
+            id=message.id,
+            body=message.body,
+            created_at=message.created_at,
+        )
+        for message in visible_messages(actor, ticket, messages)
         if message.kind is MessageKind.PUBLIC
     )
     return TicketSurface(

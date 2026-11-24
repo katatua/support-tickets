@@ -3,6 +3,9 @@
 The app never reads tenant, actor, installation or environment from client headers
 or request bodies. A trusted D0 middleware must attach the resolved context to
 request.state.sovharn_context before app routes can operate.
+
+The draft source ref is pinned in d0-contract.lock.json. This local adapter is not
+runtime compatibility evidence until that exact contract is published and consumed.
 """
 from __future__ import annotations
 

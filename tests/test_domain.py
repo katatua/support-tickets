@@ -198,8 +198,8 @@ class DomainTests(unittest.TestCase):
             ticket=ticket(), recipient_actor_id=ANA, event="public_reply"
         )
         all_safe_surfaces = repr((surface, assistant, public_results, secret_results, payload))
-        self.assertEqual([message.kind for message in surface.messages], [MessageKind.PUBLIC])
-        self.assertEqual([message.kind for message in assistant.messages], [MessageKind.PUBLIC])
+        self.assertEqual([message.body for message in surface.messages], ["Public shipping update."])
+        self.assertEqual([message.body for message in assistant.messages], ["Public shipping update."])
         self.assertEqual(len(public_results), 1)
         self.assertEqual(secret_results, ())
         self.assertNotIn("private-phrase", all_safe_surfaces)
