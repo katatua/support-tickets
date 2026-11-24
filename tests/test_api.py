@@ -72,7 +72,10 @@ class ApiTests(unittest.TestCase):
         self.app = create_app(store=self.store, context_resolver=lambda: self.context)
         self.app.config.update(TESTING=True)
         self.client = self.app.test_client()
-        self.host = {"Host": "apoio-testes.sovharn.com"}
+        self.host = {
+            "Host": "apoio-testes.sovharn.com",
+            "Origin": "https://apoio-testes.sovharn.com",
+        }
 
     def test_missing_trusted_context_fails_closed_despite_client_claims(self):
         app = create_app(store=self.store)
@@ -93,6 +96,18 @@ class ApiTests(unittest.TestCase):
 
     def test_app_context_cannot_be_replayed_on_another_host(self):
         response = self.client.get("/api/v1/me", headers={"Host": "apoio.sovharn.com"})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(self.store.calls, [])
+
+    def test_cross_site_mutation_is_rejected_before_store_access(self):
+        response = self.client.post(
+            "/api/v1/tickets",
+            headers={"Host": "apoio-testes.sovharn.com", "Origin": "https://evil.example"},
+            json={
+                "account_id": str(uuid4()), "subject": "Export failure",
+                "body": "The monthly export is not available.",
+            },
+        )
         self.assertEqual(response.status_code, 401)
         self.assertEqual(self.store.calls, [])
 

@@ -35,6 +35,12 @@ O contrato esperado está fixado em `support_portal/d0-contract.lock.json`: PR d
 ao provedor de identidade. O destino Apoio continua `PLANNED`; a existência do lock
 não prova compatibilidade de runtime nem integração SH Connect.
 
+O schema D0 declara os campos de ID como strings não vazias, sem formato UUID. Este
+adapter e o esquema PostgreSQL da app exigem UUID nos campos indicados em
+`adapter_requirements.uuid_string_fields`. A emissão desses valores no formato UUID
+é um requisito de compatibilidade do runtime ainda por verificar; a app não declara
+integração D0 funcional até haver essa prova.
+
 ## Arranque local
 
 Instalar `requirements.txt`, configurar `APOIO_DATABASE_URL` para uma base de teste

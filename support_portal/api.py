@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 from uuid import UUID
+from urllib.parse import urlsplit
 
 from flask import Flask, jsonify, make_response, render_template, request
 from pydantic import ValidationError as PydanticValidationError
@@ -88,6 +89,28 @@ def create_app(
             request_host = (request.host or "").split(":", 1)[0].lower()
             if not expected_host or request_host != expected_host:
                 raise ContextUnavailable("Request host does not match the trusted environment.")
+            if request.method not in {"GET", "HEAD", "OPTIONS"}:
+                origin = request.headers.get("Origin")
+                if not origin:
+                    referer = request.headers.get("Referer")
+                    origin = f"{urlsplit(referer).scheme}://{urlsplit(referer).netloc}" if referer else ""
+                parsed_origin = urlsplit(origin)
+                request_authority = urlsplit(f"//{request.host or ''}")
+                default_port = 443 if parsed_origin.scheme == "https" else 80
+                try:
+                    port_matches = (parsed_origin.port or default_port) == (request_authority.port or default_port)
+                except ValueError as exc:
+                    raise ContextUnavailable("Mutation origin is malformed.") from exc
+                if (
+                    parsed_origin.scheme not in {"http", "https"}
+                    or (parsed_origin.hostname or "").lower() != expected_host
+                    or parsed_origin.username is not None
+                    or parsed_origin.password is not None
+                    or bool(parsed_origin.path or parsed_origin.query or parsed_origin.fragment)
+                    or not port_matches
+                    or (context.environment_kind == "production" and parsed_origin.scheme != "https")
+                ):
+                    raise ContextUnavailable("Mutation origin does not match this app environment.")
             return context
         except ContextUnavailable as exc:
             raise _http_error(401, "A autenticação pessoal deste portal não está disponível.") from exc

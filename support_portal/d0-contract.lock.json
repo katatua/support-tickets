@@ -5,6 +5,17 @@
   "package_version": "0.1.0",
   "request_context_schema_path": "packages/sovharn-apps-core/contracts/request-context.v1.schema.json",
   "request_context_schema_blob_sha": "b5a47c322ad71638ad9ba6b888449a7c946a269c",
+  "adapter_requirements": {
+    "uuid_string_fields": [
+      "owner_org_id",
+      "installation_id",
+      "environment_id",
+      "data_tenant_id",
+      "actor_id",
+      "correlation_id"
+    ],
+    "status": "runtime_emission_unverified"
+  },
   "destinations_manifest_path": "packages/sovharn-apps-core/contracts/destinations.v1.json",
   "destinations_manifest_blob_sha": "0a8c9e8eb2a1622f3001a007303d657bdbea7889",
   "application_id": "apoio",

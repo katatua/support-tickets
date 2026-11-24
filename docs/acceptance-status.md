@@ -5,7 +5,7 @@ SQL exercita PostgreSQL 16.15 com identidade sintética e RLS. Nenhuma dessas pr
 substitui o runtime autenticado comum.
 
 Resultado local final desta revisão: `python3 -m unittest discover -s tests -v` passou
-35 testes; `python3 -m py_compile support_portal/*.py`, renderização Flask da página e
+36 testes; `python3 -m py_compile support_portal/*.py`, renderização Flask da página e
 `node --check` do JavaScript renderizado passaram. A migration e `tests/postgres_rls.sql`
 passaram em PostgreSQL 16.15 descartável, incluindo draft por autor e revogação de
 membership; as fixtures foram revertidas.
@@ -50,4 +50,7 @@ O schema `request-context.v1.schema.json` mantém o blob SHA
 `b5a47c322ad71638ad9ba6b888449a7c946a269c`; o manifesto de destinos mantém
 `0a8c9e8eb2a1622f3001a007303d657bdbea7889`. O PR D0 continua draft, sem middleware de
 identidade, instalação Apoio ou readback SH Connect; o resolver desta app falha
-fechado sem objeto confiável WSGI.
+fechado sem objeto confiável WSGI. O schema D0 tipa IDs como strings não vazias, mas
+esta app e os GUCs RLS exigem UUID. O runtime tem de emitir UUIDs para os campos
+listados em `adapter_requirements.uuid_string_fields`; essa compatibilidade ainda não
+foi demonstrada.
