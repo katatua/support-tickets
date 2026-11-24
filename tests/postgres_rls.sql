@@ -33,6 +33,7 @@ END
 $$;
 GRANT USAGE ON SCHEMA support_portal TO apoio_runtime_test;
 GRANT SELECT ON ALL TABLES IN SCHEMA support_portal TO apoio_runtime_test;
+GRANT INSERT ON support_portal.ticket_attachment TO apoio_runtime_test;
 
 INSERT INTO support_portal.customer_account
   (id, owner_org_id, application_id, installation_id, environment_id, tenant_id, name, created_by)
@@ -150,12 +151,22 @@ VALUES
    'install:apoio', 'environment:shared',
    'tenant:alpha', '59000000-0000-4000-8000-000000000001',
    '5a000000-0000-4000-8000-000000000001', '5d000000-0000-4000-8000-000000000001',
-   'person:ana', 'public.pdf', 'application/pdf', 128, repeat('d', 64), 'clean'),
+   'person:ana', 'public.pdf', 'application/pdf', 128, repeat('d', 64), 'pending'),
   ('5c000000-0000-4000-8000-000000000002', 'org:apoio', 'apoio',
    'install:apoio', 'environment:shared',
    'tenant:alpha', '59000000-0000-4000-8000-000000000001',
    '5a000000-0000-4000-8000-000000000002', '5d000000-0000-4000-8000-000000000002',
-   'person:rita', 'internal.pdf', 'application/pdf', 128, repeat('e', 64), 'clean');
+   'person:rita', 'internal.pdf', 'application/pdf', 128, repeat('e', 64), 'pending');
+
+DO $
+BEGIN
+  UPDATE support_portal.ticket_attachment SET scan_state = 'clean'
+  WHERE id = '5c000000-0000-4000-8000-000000000001';
+  RAISE EXCEPTION 'database accepted CLEAN without D0 v2 scanner attestation';
+EXCEPTION WHEN check_violation THEN
+  NULL;
+END
+$;
 
 INSERT INTO support_portal.ticket_message_draft
   (id, owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id,
@@ -181,7 +192,22 @@ SELECT set_config('app.environment_kind', 'test', true);
 SELECT set_config('app.data_tenant_id', 'tenant:beta', true);
 SELECT set_config('app.actor_id', 'person:bruno', true);
 SELECT set_config('app.actor_kind', 'user', true);
-DO $$
+DO $
+BEGIN
+  INSERT INTO support_portal.ticket_attachment
+    (id, owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id,
+     message_id, storage_object_id, owner_id, filename, mime_type, size_bytes, sha256, scan_state)
+  VALUES
+    ('5c000000-0000-4000-8000-000000000003', 'org:apoio', 'apoio', 'install:apoio',
+     'environment:shared', 'tenant:beta', '59000000-0000-4000-8000-000000000002',
+     '5a000000-0000-4000-8000-000000000003', '5d000000-0000-4000-8000-000000000003',
+     'person:bruno', 'pending.pdf', 'application/pdf', 128, repeat('f', 64), 'pending');
+  RAISE EXCEPTION 'runtime role inserted attachment without a D0 v2 upload/scanner adapter';
+EXCEPTION WHEN insufficient_privilege THEN
+  NULL;
+END
+$;
+DO $
 DECLARE visible_count integer; unknown_count integer;
 BEGIN
   SELECT count(*) INTO visible_count FROM support_portal.ticket

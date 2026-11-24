@@ -482,11 +482,11 @@ def validate_attachment_for_publish(
         raise NotFound("Attachment not found.")
     if attachment.linked_message_id is not None:
         raise Conflict("This attachment has already been published.")
-    if attachment.scan_state is not ScanState.CLEAN:
-        raise ValidationError("Only a validated attachment can be published.")
     if not actor.roles & {Role.AGENT, Role.PLATFORM_ADMIN, Role.COORDINATOR,
                           Role.CUSTOMER_ADMIN, Role.CUSTOMER_MEMBER}:
         raise Forbidden("You cannot publish an attachment to this ticket.")
+    # AttachmentRef has no signed attestation; a plain CLEAN label is not evidence.
+    raise ValidationError("A verified D0 v2 scanner attestation is required before publishing attachments.")
 
 
 def canonical_payload_digest(payload: Any) -> str:

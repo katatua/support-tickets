@@ -18,6 +18,8 @@ Flask, uma interface web responsiva, serviço PostgreSQL/RLS e operações idemp
   pública. O fluxo de apoio não chama Sovharn nem depende de um modelo.
 - A interface não mostra anexos enquanto o armazenamento privado e o scanner não
   estiverem ligados. Não existe modo de demonstração que abra o acesso.
+- A aplicação não admite `CLEAN`: `AttachmentRef` ainda não transporta
+  atestação D0 v2, a migration proíbe `clean` e RLS bloqueia inserts de anexos.
 
 ## Identidade e runtime
 
@@ -29,11 +31,15 @@ transaction-local.
 
 O contrato esperado está fixado em `support_portal/d0-contract.lock.json`: PR draft
 `katatua/gravit-workspace-cloud#3479`, commit
-`f685156eab87650c471a87610050c28d25678a0e`, schema
+`80f02a127d87ecfc270cf4df7aae8359a288cb8f`, schema
 `packages/sovharn-apps-core/contracts/request-context.v1.schema.json` (blob
-`b5a47c322ad71638ad9ba6b888449a7c946a269c`). O schema não está publicado nem ligado
-ao provedor de identidade. O destino Apoio continua `PLANNED`; a existência do lock
-não prova compatibilidade de runtime nem integração SH Connect.
+`b5a47c322ad71638ad9ba6b888449a7c946a269c`). O contrato FileAsset usa
+`ScannerAttestation` v2 (`files.py`, blob
+`01591270a7e07d4c6feb515e641ed42a462934ea`): veredito CLEAN, digest dos bytes
+inspecionados e HMAC de uma chave confiável. Apoio ainda não implementa esse adapter,
+por isso não permite publicar nem guardar anexos como `CLEAN`. O schema não está
+publicado nem ligado ao provedor de identidade. O destino Apoio continua `PLANNED`;
+a existência do lock não prova compatibilidade de runtime nem integração SH Connect.
 
 Os IDs do contexto D0 são tratados como strings opacas: o adapter valida presença,
 limite local de 256 caracteres, ausência de espaços nas extremidades e caracteres de
@@ -65,14 +71,15 @@ python3 -m py_compile support_portal/*.py
 
 Em PostgreSQL descartável, aplicar `migrations/0001_support_portal.sql` e depois
 `tests/postgres_rls.sql` com `psql -v ON_ERROR_STOP=1`. A fixture usa apenas contas,
-pessoas, tickets, mensagens e anexos sintéticos e faz rollback.
+pessoas, tickets, mensagens e anexos sintéticos e faz rollback. O workflow
+`.github/workflows/ci.yml` repete os testes Python e esta prova em PostgreSQL 16.
 
 ## Limites para D1 utilizável
 
 1. Publicar o contrato D0 e ligar o middleware de identidade, memberships, grants e
    contexto por transação; manter a role da app sem `BYPASSRLS`.
-2. Ligar FileAsset privado e scanner real. Upload, URL de anexo, exportação de ficheiro
-   e publicação de mensagem com anexos não estão implementados nem aceitam conteúdo.
+2. Ligar FileAsset privado e scanner real, incluindo verificação HMAC da atestação v2.
+   Não existe rota de upload/descarga; o domínio e SQL recusam CLEAN até o adapter.
 3. Provar a API contra PostgreSQL através de runtime autenticado e correr os 19
    cenários APO-AT de ponta a ponta.
 4. Verificar a interface em browser real a 390 px com teclado aberto e provar a

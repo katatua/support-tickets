@@ -322,15 +322,16 @@ class DomainTests(unittest.TestCase):
                 application_id=APP, environment_id=ENV,
             )
 
-    def test_clean_attachment_is_bound_to_actor_tenant_app_and_environment(self):
+    def test_unsigned_clean_attachment_requires_d0_v2_attestation(self):
         attachment = AttachmentRef(
             id=uuid4(), tenant_id=TENANT_A, application_id=APP, environment_id=ENV,
             owner_id=ANA, scan_state=ScanState.CLEAN,
         )
-        validate_attachment_for_publish(
-            actor=customer(), ticket=ticket(), attachment=attachment,
-            application_id=APP, environment_id=ENV,
-        )
+        with self.assertRaisesRegex(ValidationError, "D0 v2 scanner attestation"):
+            validate_attachment_for_publish(
+                actor=customer(), ticket=ticket(), attachment=attachment,
+                application_id=APP, environment_id=ENV,
+            )
         with self.assertRaises(NotFound):
             validate_attachment_for_publish(
                 actor=customer(BRUNO), ticket=ticket(), attachment=attachment,

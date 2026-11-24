@@ -464,7 +464,7 @@ CREATE TABLE support_portal.ticket_attachment (
   mime_type varchar(160) NOT NULL,
   size_bytes bigint NOT NULL CHECK (size_bytes BETWEEN 1 AND 20971520),
   sha256 char(64) NOT NULL,
-  scan_state text NOT NULL CHECK (scan_state = 'clean'),
+  scan_state text NOT NULL CHECK (scan_state IN ('pending', 'rejected')),
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (id),
   UNIQUE (owner_org_id, application_id, installation_id, environment_id, environment_kind, tenant_id, storage_object_id),
@@ -785,19 +785,10 @@ FOR SELECT USING (
       AND (m.kind = 'public' OR support_portal.can_read_internal(ticket_attachment.ticket_id))
   )
 );
+-- Until a D0 FileAsset adapter verifies ScannerAttestation v2, no application
+-- role may create attachment metadata or assert that bytes are CLEAN.
 CREATE POLICY ticket_attachment_insert ON support_portal.ticket_attachment
-FOR INSERT WITH CHECK (
-  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, environment_kind, tenant_id)
-  AND owner_id = support_portal.current_actor_id()
-  AND scan_state = 'clean'
-  AND support_portal.can_read_ticket(ticket_id)
-  AND EXISTS (
-    SELECT 1 FROM support_portal.ticket_message m
-    WHERE m.id = ticket_attachment.message_id
-      AND m.ticket_id = ticket_attachment.ticket_id
-      AND m.author_id = support_portal.current_actor_id()
-  )
-);
+FOR INSERT WITH CHECK (false);
 
 CREATE POLICY ticket_transition_staff_read ON support_portal.ticket_transition
 FOR SELECT USING (

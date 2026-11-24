@@ -1,7 +1,11 @@
 {
   "source_repository": "katatua/gravit-workspace-cloud",
   "source_pull_request": 3479,
-  "source_commit": "f685156eab87650c471a87610050c28d25678a0e",
+  "source_commit": "80f02a127d87ecfc270cf4df7aae8359a288cb8f",
+  "scanner_contract_path": "packages/sovharn-apps-core/src/sovharn_apps_core/files.py",
+  "scanner_contract_blob_sha": "01591270a7e07d4c6feb515e641ed42a462934ea",
+  "file_assets_sql_path": "packages/sovharn-apps-core/sql/002_common_records.sql",
+  "file_assets_sql_blob_sha": "dec6110b4b58c4e021f751e8eea9da72e5588f75",
   "package_version": "0.1.0",
   "request_context_schema_path": "packages/sovharn-apps-core/contracts/request-context.v1.schema.json",
   "request_context_schema_blob_sha": "b5a47c322ad71638ad9ba6b888449a7c946a269c",

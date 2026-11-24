@@ -6,11 +6,13 @@ substitui o runtime autenticado comum.
 
 **Não é a matriz canónica de aceite.** O ZIP e `04-Apoio.md` não foram recebidos. Os IDs APO-AT são rótulos locais provisórios, não foram mapeados contra os 231 cenários e não declaram critérios aceites. As evidências abaixo descrevem apenas provas técnicas da branch e limites observados.
 
-Resultado local final desta revisão: `python3 -m unittest discover -s tests -v` passou
-39 testes; `python3 -m py_compile support_portal/*.py`, renderização Flask da página e
-`node --check` do JavaScript renderizado passaram. A migration e `tests/postgres_rls.sql`
-passaram em PostgreSQL 16.15 descartável, incluindo draft por autor e revogação de
-membership; as fixtures foram revertidas.
+Nesta revisão, `python3 -m unittest discover -s tests -v` passou 39 testes e
+`python3 -m py_compile support_portal/*.py` passou. As regressões novas rejeitam CLEAN
+sem ScannerAttestation v2 no domínio e cobrem a constraint e a policy RLS de anexos.
+A prova SQL não arrancou localmente: `initdb` não conseguiu alocar memória partilhada
+SysV neste ambiente. O workflow desta branch executa a migration e `tests/postgres_rls.sql`
+num PostgreSQL 16 descartável; o resultado de CI não substitui integração autenticada
+nem scanner/FileAsset real.
 
 | Cenário | Prova local nesta branch | Gate ainda aberto |
 | --- | --- | --- |
@@ -21,7 +23,7 @@ membership; as fixtures foram revertidas.
 | APO-AT-005 | Atribuição com versão antiga dá 412 no domínio; API encaminha a versão esperada; operações de persistência fazem `SELECT FOR UPDATE` e validam essa versão. | Corrida concorrente real por duas sessões autenticadas. |
 | APO-AT-006 | Resolução sem membro de equipa ativo ou resumo de 10 caracteres falha no domínio. | Exercitar autorização e histórico pela API persistida. |
 | APO-AT-007 | Resposta em `waiting_customer` regressa a `in_progress` e conserva a pergunta no histórico; backend publica mensagem e altera estado na transação. | Exercitar sequência completa cliente/equipa no runtime. |
-| APO-AT-008 | Anexo pendente/rejeitado não pode ser publicado; interface desativa uploads e não aceita bytes. | FileAsset privado, validação de conteúdo e tratamento de upload inválido. |
+| APO-AT-008 | Anexo `CLEAN` sem atestação D0 v2 é recusado no domínio; SQL rejeita CLEAN e RLS bloqueia inserts runtime. A interface desativa uploads e não aceita bytes. | FileAsset privado, verificação HMAC, validação de conteúdo e fluxo de upload inválido. |
 | APO-AT-009 | Ferramenta `read_ticket` é tipada e só lê via serviço autorizado; contexto do assistente inclui mensagens públicas. | Ligar modelo real e provar o payload completo enviado, sem notas internas. |
 | APO-AT-010 | Revisão aprovada antiga ou digest diferente não pode ser admitida. | Recibo oficial de admissão do serviço comum. |
 | APO-AT-011 | Sem integração de submissão ou reconciliação declarada. | Perder resposta de submissão real e reconciliar pelo recibo sem tarefa duplicada. |
@@ -32,7 +34,7 @@ membership; as fixtures foram revertidas.
 | APO-AT-016 | Nenhuma integração externa afirmada. Lock e inventário D0 continuam em `PLANNED`. | Contrato/credenciais/readback SH Connect e evidência externa autorizada. |
 | APO-AT-017 | Paginação filtra ACL antes de cursor/`has_more`; API valida e passa cursor codificado em base64; lista não publica contagens ocultas. | Repetir em SQL/API com páginas simultâneas e provar ausência de duplicados. |
 | APO-AT-018 | Categoria inativa é recusada sem alteração de ticket no domínio; endpoint de triagem usa transação e valida categoria antes do update. | Exercitar a mutação em PostgreSQL/API e confirmar estado/versionamento. |
-| APO-AT-019 | A migration só permite anexo limpo ligado a mensagem publicada e mesma instalação/tenant; upload continua indisponível. | Upload privado ao autor, scanner real, publicação atómica e revogação do URL. |
+| APO-AT-019 | A migration proíbe `clean`; o teste PostgreSQL cobre a recusa de CLEAN e o RLS bloqueia criação pelo papel runtime. Não há rota de upload/descarga. | Adapter FileAsset v2, scanner real com HMAC, publicação atómica e revogação do URL. |
 
 ## Requisitos APO-001–014
 
@@ -42,16 +44,23 @@ transições, versões esperadas, recibos idempotentes, limites de intake, pesqu
 autorizada, cursor, contexto de assistente só público, anexos presos a mensagem, e
 separação entre ticket de suporte e pedido de evolução. Consulte os testes unitários e
 `migrations/0001_support_portal.sql` para as regras específicas. O que depende de D0,
-FileAsset, scanner, navegador ou SH Connect permanece por provar.
+FileAsset, scanner, navegador ou SH Connect permanece por provar. Nenhum estado
+CLEAN pode ser aceite localmente: AttachmentRef não transporta ScannerAttestation,
+e a aplicação ainda não verifica a assinatura HMAC v2.
 
 ## D0 fixado
 
 `support_portal/d0-contract.lock.json` aponta para o head atual consultado do PR draft
-`katatua/gravit-workspace-cloud#3479`: `f685156eab87650c471a87610050c28d25678a0e`.
+`katatua/gravit-workspace-cloud#3479`: `80f02a127d87ecfc270cf4df7aae8359a288cb8f`.
 O schema `request-context.v1.schema.json` mantém o blob SHA
 `b5a47c322ad71638ad9ba6b888449a7c946a269c`; o manifesto de destinos mantém
-`0a8c9e8eb2a1622f3001a007303d657bdbea7889`. O PR D0 continua draft, sem middleware de identidade, instalação Apoio ou readback
-SH Connect; o resolver desta app falha fechado sem objeto confiável WSGI. Os IDs são
-strings opacas no adapter e no SQL, com validação local limitada e escopo completo
-owner/app/installation/environment/environment_kind/tenant. O contexto emitido pelo
-runtime continua por verificar.
+`0a8c9e8eb2a1622f3001a007303d657bdbea7889`. O contrato ScannerVerdict v2 está em
+`sovharn_apps_core/files.py` (blob
+`01591270a7e07d4c6feb515e641ed42a462934ea`): exige veredito CLEAN, SHA dos mesmos
+bytes e HMAC válido por chave confiável; o SQL FileAsset v2 exige metadados de
+atestação (blob `dec6110b4b58c4e021f751e8eea9da72e5588f75`). Apoio ainda não consome
+esse adapter. O PR D0 continua draft, sem middleware de identidade, instalação Apoio
+ou readback SH Connect; o resolver desta app falha fechado sem objeto confiável WSGI.
+Os IDs são strings opacas no adapter e no SQL, com validação local limitada e escopo
+completo owner/app/installation/environment/environment_kind/tenant. O contexto
+emitido pelo runtime continua por verificar.
