@@ -34,7 +34,7 @@ transaction-local.
 
 O contrato esperado está fixado em `support_portal/d0-contract.lock.json`: PR draft
 `katatua/gravit-workspace-cloud#3479`, commit
-`ad12e19670af05c7b196352c51f5c298b60cc4db`, schema
+`e2b8a639a8bd86672e2696c397b9c3d53dca0cfe`, schema
 `packages/sovharn-apps-core/contracts/request-context.v1.schema.json` (blob
 `b5a47c322ad71638ad9ba6b888449a7c946a269c`). O contrato FileAsset usa
 `ScannerAttestation` v2 (`files.py`, blob
@@ -75,9 +75,9 @@ python3 -m unittest discover -s tests -v
 python3 -m py_compile support_portal/*.py
 ```
 
-Em PostgreSQL descartável, aplicar `migrations/0001_support_portal.sql`,
-`migrations/0002_internal_change_request_links.sql` e depois `tests/postgres_rls.sql`
-com `psql -v ON_ERROR_STOP=1`. A fixture usa apenas contas,
+Em PostgreSQL descartável, aplicar as migrations 0001 e 0002; executar
+`python -m unittest discover -s tests -p test_change_request_postgres.py -v` com
+`APOIO_TEST_DATABASE_URL`, depois `tests/postgres_rls.sql` com `psql -v ON_ERROR_STOP=1`. A fixture usa apenas contas,
 pessoas, tickets, mensagens e anexos sintéticos e faz rollback. O workflow
 `.github/workflows/ci.yml` repete os testes Python e esta prova em PostgreSQL 16.
 
