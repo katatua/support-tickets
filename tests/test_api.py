@@ -196,16 +196,17 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(args["expected_version"], payload["expected_version"])
             self.assertEqual(args["idempotency_key"], f"key-{operation}")
 
-    def test_assignment_accepts_opaque_actor_ids_and_rejects_control_characters(self):
+    def test_assignment_accepts_long_opaque_actor_ids_and_internal_newlines(self):
         ticket_id = uuid4()
         team_id = uuid4()
+        assignee_id = "person:" + ("agent" * 60) + "\nsecondary"
         ok = self.client.post(
             f"/api/v1/tickets/{ticket_id}/assign",
             headers={**self.host, "Idempotency-Key": "opaque-assignee"},
-            json={"expected_version": 1, "team_id": str(team_id), "assignee_id": "person:agent-opaque"},
+            json={"expected_version": 1, "team_id": str(team_id), "assignee_id": assignee_id},
         )
         self.assertEqual(ok.status_code, 200)
-        self.assertEqual(self.store.calls[-1][2]["assignee_id"], "person:agent-opaque")
+        self.assertEqual(self.store.calls[-1][2]["assignee_id"], assignee_id)
         self.store.calls.clear()
         invalid = self.client.post(
             f"/api/v1/tickets/{ticket_id}/assign",

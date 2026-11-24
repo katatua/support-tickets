@@ -13,6 +13,23 @@ END
 $$;
 ALTER ROLE apoio_runtime_test NOBYPASSRLS;
 SELECT set_config('app.environment_kind', 'test', false);
+DO $apoio_d0_identifiers$
+BEGIN
+  IF NOT support_portal.valid_context_identifier(repeat('x', 257)) THEN
+    RAISE EXCEPTION 'SQL added a D0 opaque identifier length cap';
+  END IF;
+  IF NOT support_portal.valid_context_identifier(E'actor:inner\nline') THEN
+    RAISE EXCEPTION 'SQL rejected an internal D0 identifier control character';
+  END IF;
+  IF support_portal.valid_context_identifier('')
+     OR support_portal.valid_context_identifier('   ')
+     OR support_portal.valid_context_identifier(' actor')
+     OR support_portal.valid_context_identifier(E'actor\n')
+     OR support_portal.valid_context_identifier(E'\tactor') THEN
+    RAISE EXCEPTION 'SQL accepted an empty or edge-whitespace D0 identifier';
+  END IF;
+END
+$apoio_d0_identifiers$;
 DO $$
 BEGIN
   IF NOT EXISTS (

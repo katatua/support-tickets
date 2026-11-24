@@ -69,7 +69,7 @@ class PublishDraftInput(StrictModel):
 class AssignTicketInput(StrictModel):
     expected_version: int = Field(ge=1)
     team_id: UUID
-    assignee_id: str = Field(min_length=1, max_length=256)
+    assignee_id: str
 
     @field_validator("assignee_id", mode="before")
     @classmethod

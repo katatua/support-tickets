@@ -51,7 +51,7 @@ e a aplicação ainda não verifica a assinatura HMAC v2.
 ## D0 fixado
 
 `support_portal/d0-contract.lock.json` aponta para o head atual consultado do PR draft
-`katatua/gravit-workspace-cloud#3479`: `80f02a127d87ecfc270cf4df7aae8359a288cb8f`.
+`katatua/gravit-workspace-cloud#3479`: `fd6ef9be4c2ba50e4921d086541288ee00dc3179`.
 O schema `request-context.v1.schema.json` mantém o blob SHA
 `b5a47c322ad71638ad9ba6b888449a7c946a269c`; o manifesto de destinos mantém
 `0a8c9e8eb2a1622f3001a007303d657bdbea7889`. O contrato ScannerVerdict v2 está em
@@ -61,6 +61,7 @@ bytes e HMAC válido por chave confiável; o SQL FileAsset v2 exige metadados de
 atestação (blob `dec6110b4b58c4e021f751e8eea9da72e5588f75`). Apoio ainda não consome
 esse adapter. O PR D0 continua draft, sem middleware de identidade, instalação Apoio
 ou readback SH Connect; o resolver desta app falha fechado sem objeto confiável WSGI.
-Os IDs são strings opacas no adapter e no SQL, com validação local limitada e escopo
-completo owner/app/installation/environment/environment_kind/tenant. O contexto
+Os IDs são strings opacas no adapter e no SQL, sem limite local de comprimento e com
+validação de whitespace nas extremidades consistente com D0, mantendo o escopo completo
+owner/app/installation/environment/environment_kind/tenant. O contexto
 emitido pelo runtime continua por verificar.

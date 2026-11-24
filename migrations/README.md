@@ -7,9 +7,11 @@ The file-service binding, malware scanner, delivery worker and external integrat
 remain unavailable until their common runtime contracts are published and connected.
 
 The database session is populated from the server-authenticated request context,
-inside each transaction. Opaque D0 identifiers are stored as bounded text, and RLS plus
-composite keys/foreign keys include owner organization, fixed app ID, installation,
-environment ID, environment kind, and data tenant. Never derive context variables from browser input. Keep the
+inside each transaction. Opaque D0 identifiers are stored as text without a local length
+cap; the adapter rejects empty/whitespace-only values and surrounding whitespace but
+preserves internal characters, matching the pinned D0 parser. RLS plus composite
+keys/foreign keys include owner organization, fixed app ID, installation, environment
+ID, environment kind, and data tenant. Never derive context variables from browser input. Keep the
 runtime role separate from the migration owner and without BYPASSRLS.
 
 The migration and `tests/postgres_rls.sql` are proved against a disposable PostgreSQL

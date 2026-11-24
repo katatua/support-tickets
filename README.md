@@ -31,7 +31,7 @@ transaction-local.
 
 O contrato esperado está fixado em `support_portal/d0-contract.lock.json`: PR draft
 `katatua/gravit-workspace-cloud#3479`, commit
-`80f02a127d87ecfc270cf4df7aae8359a288cb8f`, schema
+`fd6ef9be4c2ba50e4921d086541288ee00dc3179`, schema
 `packages/sovharn-apps-core/contracts/request-context.v1.schema.json` (blob
 `b5a47c322ad71638ad9ba6b888449a7c946a269c`). O contrato FileAsset usa
 `ScannerAttestation` v2 (`files.py`, blob
@@ -41,10 +41,11 @@ por isso não permite publicar nem guardar anexos como `CLEAN`. O schema não es
 publicado nem ligado ao provedor de identidade. O destino Apoio continua `PLANNED`;
 a existência do lock não prova compatibilidade de runtime nem integração SH Connect.
 
-Os IDs do contexto D0 são tratados como strings opacas: o adapter valida presença,
-limite local de 256 caracteres, ausência de espaços nas extremidades e caracteres de
-controlo. O PostgreSQL guarda as mesmas dimensões como texto e inclui organização,
-app, instalação, ambiente, tipo de ambiente e tenant nas políticas, chaves e relações.
+Os IDs do contexto D0 são tratados como strings opacas: o adapter exige valor não
+vazio e sem whitespace nas extremidades, tal como o parser D0 no pin; não acrescenta
+um limite local de comprimento nem rejeita caracteres de controlo internos. O
+PostgreSQL guarda as mesmas dimensões como texto e inclui organização, app, instalação,
+ambiente, tipo de ambiente e tenant nas políticas, chaves e relações.
 `application_id` fica limitado a `apoio` na camada SQL. O runtime de identidade ainda
 não está ligado; o pin prova apenas a referência do contrato, não a emissão de contexto
 nem a integração SH Connect.
