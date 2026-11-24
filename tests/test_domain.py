@@ -148,11 +148,16 @@ class DomainTests(unittest.TestCase):
         self.assertEqual(context.actor_id, "person:ana")
         self.assertEqual(context.correlation_id, "request:opaque-01")
 
-    def test_context_rejects_unbounded_or_control_character_identifiers(self):
-        for invalid in ("", "   ", " org:acme", "org:acme\n", "x" * 257):
+    def test_context_rejects_empty_and_surrounding_whitespace_identifiers(self):
+        for invalid in ("", "   ", " org:acme", "org:acme\n", "org:acme\t"):
             with self.subTest(invalid=repr(invalid)):
                 with self.assertRaises(ContextUnavailable):
                     RequestContext.from_trusted_state(trusted_state(owner_org_id=invalid))
+
+    def test_context_preserves_long_opaque_ids_and_internal_control_characters(self):
+        identifier = "org:" + ("x" * 300) + "\nunit"
+        context = RequestContext.from_trusted_state(trusted_state(owner_org_id=identifier))
+        self.assertEqual(context.owner_org_id, identifier)
 
     def test_context_binding_requires_exact_installation_and_environment(self):
         context = RequestContext.from_trusted_state(trusted_state())

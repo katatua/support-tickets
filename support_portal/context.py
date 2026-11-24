@@ -12,7 +12,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from collections.abc import Mapping
 from typing import Any
-import unicodedata
 
 
 class ContextUnavailable(RuntimeError):
@@ -88,15 +87,9 @@ class RequestContext:
 
 
 def validate_opaque_identifier(value: object) -> str:
-    """Validate a bounded D0 identifier without imposing UUID syntax."""
-    if (
-        not isinstance(value, str)
-        or not value.strip()
-        or value != value.strip()
-        or len(value) > 256
-        or any(unicodedata.category(char) == "Cc" for char in value)
-    ):
-        raise ValueError("required bounded opaque text")
+    """Match D0's opaque text rules without adding a local length or character policy."""
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ValueError("required opaque text without surrounding whitespace")
     return value
 
 
