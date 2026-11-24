@@ -15,7 +15,7 @@ ID, environment kind, and data tenant. Never derive context variables from brows
 runtime role separate from the migration owner and without BYPASSRLS.
 
 The migration and `tests/postgres_rls.sql` are proved against a disposable PostgreSQL
-16.15 instance; rerun that proof after migration edits. The SQL proof uses a non-login runtime role without `BYPASSRLS`,
+16 instance; rerun that proof after migration edits. The SQL proof uses a non-login runtime role without `BYPASSRLS`,
 inserts only synthetic fixtures, checks customer and team views, and checks that a
 service actor cannot inherit a person's membership. It rolls back its fixtures. This
 proves the database policies in isolation; it does not prove the D0 request middleware,

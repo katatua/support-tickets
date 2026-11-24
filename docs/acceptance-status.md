@@ -1,7 +1,7 @@
 # Apoio · cenários técnicos locais (IDs provisórios APO-AT-001–019)
 
 Estado desta branch. Unit tests exercem regras e HTTP com um serviço de teste; a prova
-SQL exercita PostgreSQL 16.15 com identidade sintética e RLS. Nenhuma dessas provas
+SQL exercita PostgreSQL 16 com identidade sintética e RLS. Nenhuma dessas provas
 substitui o runtime autenticado comum.
 
 **Não é a matriz canónica de aceite.** O ZIP e `04-Apoio.md` não foram recebidos. Os IDs APO-AT são rótulos locais provisórios, não foram mapeados contra os 231 cenários e não declaram critérios aceites. As evidências abaixo descrevem apenas provas técnicas da branch e limites observados.
