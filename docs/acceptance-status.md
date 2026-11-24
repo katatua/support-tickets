@@ -6,9 +6,9 @@ substitui o runtime autenticado comum.
 
 **Não é a matriz canónica de aceite.** O ZIP e `04-Apoio.md` não foram recebidos. Os IDs APO-AT são rótulos locais provisórios, não foram mapeados contra os 231 cenários e não declaram critérios aceites. As evidências abaixo descrevem apenas provas técnicas da branch e limites observados.
 
-Nesta revisão, `python3 -m unittest discover -s tests -v` passou 39 testes e
-`python3 -m py_compile support_portal/*.py` passou. As regressões novas rejeitam CLEAN
-sem ScannerAttestation v2 no domínio e cobrem a constraint e a policy RLS de anexos.
+Nesta revisão, `python3 -m unittest discover -s tests -v` passou 40 testes e
+`python3 -m py_compile support_portal/*.py` passou. As regressões cobrem a compatibilidade
+D0 dos IDs opacos e rejeitam CLEAN sem ScannerAttestation v2 no domínio, SQL e RLS.
 A prova SQL não arrancou localmente: `initdb` não conseguiu alocar memória partilhada
 SysV neste ambiente. O workflow desta branch executa a migration e `tests/postgres_rls.sql`
 num PostgreSQL 16 descartável; o resultado de CI não substitui integração autenticada
