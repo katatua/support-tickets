@@ -43,17 +43,17 @@ from support_portal.domain import (
 )
 
 
-TENANT_A = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
-TENANT_B = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+TENANT_A = "tenant:alpha"
+TENANT_B = "tenant:beta"
 ACCOUNT_A = UUID("10000000-0000-4000-8000-000000000001")
 ACCOUNT_B = UUID("10000000-0000-4000-8000-000000000002")
 TEAM = UUID("20000000-0000-4000-8000-000000000001")
-ANA = UUID("30000000-0000-4000-8000-000000000001")
-BRUNO = UUID("30000000-0000-4000-8000-000000000002")
-RITA = UUID("30000000-0000-4000-8000-000000000003")
-LUIS = UUID("30000000-0000-4000-8000-000000000004")
-APP = "support-app-real-id"
-ENV = UUID("40000000-0000-4000-8000-000000000001")
+ANA = "person:ana"
+BRUNO = "person:bruno"
+RITA = "person:rita"
+LUIS = "person:luis"
+APP = "apoio"
+ENV = "environment:shared"
 TICKET_ID = UUID("50000000-0000-4000-8000-000000000001")
 NOW = datetime(2026, 11, 24, 0, 0, tzinfo=timezone.utc)
 
@@ -107,16 +107,16 @@ def coordinator(actor_id=LUIS):
 
 def trusted_state(**overrides):
     values = {
-        "owner_org_id": str(uuid4()),
+        "owner_org_id": "org:acme",
         "application_id": APP,
-        "installation_id": str(uuid4()),
-        "environment_id": str(ENV),
+        "installation_id": "install:apoio",
+        "environment_id": ENV,
         "environment_kind": "test",
-        "data_tenant_id": str(TENANT_A),
-        "actor_id": str(ANA),
+        "data_tenant_id": TENANT_A,
+        "actor_id": ANA,
         "actor_kind": "user",
         "policy_revision": "policy-1",
-        "correlation_id": str(uuid4()),
+        "correlation_id": "request:opaque-01",
     }
     values.update(overrides)
 
@@ -138,6 +138,21 @@ class DomainTests(unittest.TestCase):
         malformed.sovharn_context["tenant_id"] = str(TENANT_B)
         with self.assertRaises(ContextUnavailable):
             RequestContext.from_trusted_state(malformed)
+
+    def test_context_accepts_opaque_non_uuid_d0_identifiers(self):
+        context = RequestContext.from_trusted_state(trusted_state())
+        self.assertEqual(context.owner_org_id, "org:acme")
+        self.assertEqual(context.installation_id, "install:apoio")
+        self.assertEqual(context.environment_id, "environment:shared")
+        self.assertEqual(context.data_tenant_id, "tenant:alpha")
+        self.assertEqual(context.actor_id, "person:ana")
+        self.assertEqual(context.correlation_id, "request:opaque-01")
+
+    def test_context_rejects_unbounded_or_control_character_identifiers(self):
+        for invalid in ("", "   ", " org:acme", "org:acme\n", "x" * 257):
+            with self.subTest(invalid=repr(invalid)):
+                with self.assertRaises(ContextUnavailable):
+                    RequestContext.from_trusted_state(trusted_state(owner_org_id=invalid))
 
     def test_context_binding_requires_exact_installation_and_environment(self):
         context = RequestContext.from_trusted_state(trusted_state())

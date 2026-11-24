@@ -5,14 +5,14 @@ SQL exercita PostgreSQL 16.15 com identidade sintética e RLS. Nenhuma dessas pr
 substitui o runtime autenticado comum.
 
 Resultado local final desta revisão: `python3 -m unittest discover -s tests -v` passou
-36 testes; `python3 -m py_compile support_portal/*.py`, renderização Flask da página e
+39 testes; `python3 -m py_compile support_portal/*.py`, renderização Flask da página e
 `node --check` do JavaScript renderizado passaram. A migration e `tests/postgres_rls.sql`
 passaram em PostgreSQL 16.15 descartável, incluindo draft por autor e revogação de
 membership; as fixtures foram revertidas.
 
 | Cenário | Prova local nesta branch | Gate ainda aberto |
 | --- | --- | --- |
-| APO-AT-001 | `test_customer_cannot_discover_other_tenant_ticket`; fixture PostgreSQL confirma Alfa/Beta indistinguíveis e actor service sem acesso. API mapeia todas as recusas a 404. | Repetir com identidade D0 e utilizadores reais de teste. |
+| APO-AT-001 | `test_customer_cannot_discover_other_tenant_ticket`; fixture PostgreSQL confirma Alfa/Beta indistinguíveis, actor service sem acesso e isolamento perante mesmo environment_id em outra organização, instalação ou environment_kind. API mapeia todas as recusas a 404. | Repetir com identidade D0 e utilizadores reais de teste. |
 | APO-AT-002 | Projeções de cliente, exportação, pesquisa, assistente e notificação não incluem notas internas; RLS filtra mensagem/anexo; drafts são por autor. | Cobrir pesquisa/exportação/assistente/notificação na API e runtime com Postgres. |
 | APO-AT-003 | Digest idempotente no domínio; API exige chave e encaminha-a. O serviço cria recibo PostgreSQL na mesma transação; formulário reutiliza o mesmo ID/chave após resposta perdida. | Exercitar replay do POST persistido depois de perder a resposta via driver/runtime. |
 | APO-AT-004 | Chave/digest igual dá replay; chave igual com corpo diferente dá conflito; HTTP recusa chave ausente. | Executar conflito contra recibo persistido e provar rollback da operação. |
@@ -45,12 +45,11 @@ FileAsset, scanner, navegador ou SH Connect permanece por provar.
 ## D0 fixado
 
 `support_portal/d0-contract.lock.json` aponta para o head atual consultado do PR draft
-`katatua/gravit-workspace-cloud#3479`: `72c22b87c4989dc50749087184d34cacb81127c4`.
+`katatua/gravit-workspace-cloud#3479`: `f685156eab87650c471a87610050c28d25678a0e`.
 O schema `request-context.v1.schema.json` mantém o blob SHA
 `b5a47c322ad71638ad9ba6b888449a7c946a269c`; o manifesto de destinos mantém
-`0a8c9e8eb2a1622f3001a007303d657bdbea7889`. O PR D0 continua draft, sem middleware de
-identidade, instalação Apoio ou readback SH Connect; o resolver desta app falha
-fechado sem objeto confiável WSGI. O schema D0 tipa IDs como strings não vazias, mas
-esta app e os GUCs RLS exigem UUID. O runtime tem de emitir UUIDs para os campos
-listados em `adapter_requirements.uuid_string_fields`; essa compatibilidade ainda não
-foi demonstrada.
+`0a8c9e8eb2a1622f3001a007303d657bdbea7889`. O PR D0 continua draft, sem middleware de identidade, instalação Apoio ou readback
+SH Connect; o resolver desta app falha fechado sem objeto confiável WSGI. Os IDs são
+strings opacas no adapter e no SQL, com validação local limitada e escopo completo
+owner/app/installation/environment/environment_kind/tenant. O contexto emitido pelo
+runtime continua por verificar.

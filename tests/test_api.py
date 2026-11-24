@@ -50,16 +50,16 @@ class FakeStore:
 
 def context(**changes):
     values = {
-        "owner_org_id": uuid4(),
+        "owner_org_id": "org:api-test",
         "application_id": "apoio",
-        "installation_id": uuid4(),
-        "environment_id": uuid4(),
+        "installation_id": "install:api-test",
+        "environment_id": "environment:api-test",
         "environment_kind": "test",
-        "data_tenant_id": uuid4(),
-        "actor_id": uuid4(),
+        "data_tenant_id": "tenant:api-test",
+        "actor_id": "person:api-test",
         "actor_kind": "user",
         "policy_revision": "policy-r1",
-        "correlation_id": uuid4(),
+        "correlation_id": "request:api-test",
     }
     values.update(changes)
     return RequestContext(**values)
@@ -172,13 +172,12 @@ class ApiTests(unittest.TestCase):
         ticket_id = uuid4()
         category_id = uuid4()
         team_id = uuid4()
-        assignee_id = uuid4()
         cases = [
             ("triage_ticket", f"/api/v1/tickets/{ticket_id}/triage", {
                 "expected_version": 1, "category_id": str(category_id), "priority": "high",
             }),
             ("assign_ticket", f"/api/v1/tickets/{ticket_id}/assign", {
-                "expected_version": 2, "team_id": str(team_id), "assignee_id": str(assignee_id),
+                "expected_version": 2, "team_id": str(team_id), "assignee_id": "person:agent-opaque",
             }),
             ("transition", f"/api/v1/tickets/{ticket_id}/transition", {
                 "expected_version": 3, "action": "start",
@@ -196,6 +195,25 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(call_context.actor_id, self.context.actor_id)
             self.assertEqual(args["expected_version"], payload["expected_version"])
             self.assertEqual(args["idempotency_key"], f"key-{operation}")
+
+    def test_assignment_accepts_opaque_actor_ids_and_rejects_control_characters(self):
+        ticket_id = uuid4()
+        team_id = uuid4()
+        ok = self.client.post(
+            f"/api/v1/tickets/{ticket_id}/assign",
+            headers={**self.host, "Idempotency-Key": "opaque-assignee"},
+            json={"expected_version": 1, "team_id": str(team_id), "assignee_id": "person:agent-opaque"},
+        )
+        self.assertEqual(ok.status_code, 200)
+        self.assertEqual(self.store.calls[-1][2]["assignee_id"], "person:agent-opaque")
+        self.store.calls.clear()
+        invalid = self.client.post(
+            f"/api/v1/tickets/{ticket_id}/assign",
+            headers={**self.host, "Idempotency-Key": "invalid-assignee"},
+            json={"expected_version": 1, "team_id": str(team_id), "assignee_id": "person:agent\n"},
+        )
+        self.assertEqual(invalid.status_code, 422)
+        self.assertEqual(self.store.calls, [])
 
     def test_unauthorized_ticket_lookup_has_one_non_disclosing_response(self):
         ticket_id = uuid4()

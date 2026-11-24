@@ -29,17 +29,19 @@ transaction-local.
 
 O contrato esperado está fixado em `support_portal/d0-contract.lock.json`: PR draft
 `katatua/gravit-workspace-cloud#3479`, commit
-`72c22b87c4989dc50749087184d34cacb81127c4`, schema
+`f685156eab87650c471a87610050c28d25678a0e`, schema
 `packages/sovharn-apps-core/contracts/request-context.v1.schema.json` (blob
 `b5a47c322ad71638ad9ba6b888449a7c946a269c`). O schema não está publicado nem ligado
 ao provedor de identidade. O destino Apoio continua `PLANNED`; a existência do lock
 não prova compatibilidade de runtime nem integração SH Connect.
 
-O schema D0 declara os campos de ID como strings não vazias, sem formato UUID. Este
-adapter e o esquema PostgreSQL da app exigem UUID nos campos indicados em
-`adapter_requirements.uuid_string_fields`. A emissão desses valores no formato UUID
-é um requisito de compatibilidade do runtime ainda por verificar; a app não declara
-integração D0 funcional até haver essa prova.
+Os IDs do contexto D0 são tratados como strings opacas: o adapter valida presença,
+limite local de 256 caracteres, ausência de espaços nas extremidades e caracteres de
+controlo. O PostgreSQL guarda as mesmas dimensões como texto e inclui organização,
+app, instalação, ambiente, tipo de ambiente e tenant nas políticas, chaves e relações.
+`application_id` fica limitado a `apoio` na camada SQL. O runtime de identidade ainda
+não está ligado; o pin prova apenas a referência do contrato, não a emissão de contexto
+nem a integração SH Connect.
 
 ## Arranque local
 

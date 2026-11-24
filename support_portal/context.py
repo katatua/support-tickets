@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from collections.abc import Mapping
 from typing import Any
-from uuid import UUID
+import unicodedata
 
 
 class ContextUnavailable(RuntimeError):
@@ -21,16 +21,16 @@ class ContextUnavailable(RuntimeError):
 
 @dataclass(frozen=True)
 class RequestContext:
-    owner_org_id: UUID
+    owner_org_id: str
     application_id: str
-    installation_id: UUID
-    environment_id: UUID
+    installation_id: str
+    environment_id: str
     environment_kind: str
-    data_tenant_id: UUID
-    actor_id: UUID
+    data_tenant_id: str
+    actor_id: str
     actor_kind: str
     policy_revision: str
-    correlation_id: UUID
+    correlation_id: str
 
     @classmethod
     def from_trusted_state(cls, state: Any) -> "RequestContext":
@@ -49,16 +49,16 @@ class RequestContext:
 
         try:
             context = cls(
-                owner_org_id=UUID(str(raw["owner_org_id"])),
+                owner_org_id=_required_text(raw["owner_org_id"]),
                 application_id=_required_text(raw["application_id"]),
-                installation_id=UUID(str(raw["installation_id"])),
-                environment_id=UUID(str(raw["environment_id"])),
+                installation_id=_required_text(raw["installation_id"]),
+                environment_id=_required_text(raw["environment_id"]),
                 environment_kind=_required_text(raw["environment_kind"]),
-                data_tenant_id=UUID(str(raw["data_tenant_id"])),
-                actor_id=UUID(str(raw["actor_id"])),
+                data_tenant_id=_required_text(raw["data_tenant_id"]),
+                actor_id=_required_text(raw["actor_id"]),
                 actor_kind=_required_text(raw["actor_kind"]),
                 policy_revision=_required_text(raw["policy_revision"]),
-                correlation_id=UUID(str(raw["correlation_id"])),
+                correlation_id=_required_text(raw["correlation_id"]),
             )
         except (ValueError, TypeError, AttributeError) as exc:
             raise ContextUnavailable("Authenticated Sovharn context is malformed.") from exc
@@ -73,8 +73,8 @@ class RequestContext:
         self,
         *,
         application_id: str,
-        installation_id: UUID,
-        environment_id: UUID,
+        installation_id: str,
+        environment_id: str,
         environment_kind: str,
     ) -> None:
         """Ensure the trusted context belongs to this exact app installation."""
@@ -87,10 +87,21 @@ class RequestContext:
             raise ContextUnavailable("Request context is outside this app installation.")
 
 
-def _required_text(value: object) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError("required text")
+def validate_opaque_identifier(value: object) -> str:
+    """Validate a bounded D0 identifier without imposing UUID syntax."""
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or value != value.strip()
+        or len(value) > 256
+        or any(unicodedata.category(char) == "Cc" for char in value)
+    ):
+        raise ValueError("required bounded opaque text")
     return value
+
+
+def _required_text(value: object) -> str:
+    return validate_opaque_identifier(value)
 
 
 

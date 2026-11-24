@@ -7,11 +7,13 @@ The file-service binding, malware scanner, delivery worker and external integrat
 remain unavailable until their common runtime contracts are published and connected.
 
 The database session is populated from the server-authenticated request context,
-inside each transaction. Never derive context variables from browser input. Keep the
+inside each transaction. Opaque D0 identifiers are stored as bounded text, and RLS plus
+composite keys/foreign keys include owner organization, fixed app ID, installation,
+environment ID, environment kind, and data tenant. Never derive context variables from browser input. Keep the
 runtime role separate from the migration owner and without BYPASSRLS.
 
-The migration and `tests/postgres_rls.sql` were applied to a disposable PostgreSQL
-16.15 instance. The SQL proof uses a non-login runtime role without `BYPASSRLS`,
+The migration and `tests/postgres_rls.sql` are proved against a disposable PostgreSQL
+16.15 instance; rerun that proof after migration edits. The SQL proof uses a non-login runtime role without `BYPASSRLS`,
 inserts only synthetic fixtures, checks customer and team views, and checks that a
 service actor cannot inherit a person's membership. It rolls back its fixtures. This
 proves the database policies in isolation; it does not prove the D0 request middleware,

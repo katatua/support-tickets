@@ -4,7 +4,9 @@ from __future__ import annotations
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from .context import validate_opaque_identifier
 
 
 class StrictModel(BaseModel):
@@ -67,7 +69,12 @@ class PublishDraftInput(StrictModel):
 class AssignTicketInput(StrictModel):
     expected_version: int = Field(ge=1)
     team_id: UUID
-    assignee_id: UUID
+    assignee_id: str = Field(min_length=1, max_length=256)
+
+    @field_validator("assignee_id", mode="before")
+    @classmethod
+    def validate_assignee_identifier(cls, value: object) -> str:
+        return validate_opaque_identifier(value)
 
 
 class TriageTicketInput(StrictModel):

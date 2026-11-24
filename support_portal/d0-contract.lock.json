@@ -1,12 +1,12 @@
 {
   "source_repository": "katatua/gravit-workspace-cloud",
   "source_pull_request": 3479,
-  "source_commit": "72c22b87c4989dc50749087184d34cacb81127c4",
+  "source_commit": "f685156eab87650c471a87610050c28d25678a0e",
   "package_version": "0.1.0",
   "request_context_schema_path": "packages/sovharn-apps-core/contracts/request-context.v1.schema.json",
   "request_context_schema_blob_sha": "b5a47c322ad71638ad9ba6b888449a7c946a269c",
   "adapter_requirements": {
-    "uuid_string_fields": [
+    "opaque_string_fields": [
       "owner_org_id",
       "installation_id",
       "environment_id",
@@ -14,6 +14,11 @@
       "actor_id",
       "correlation_id"
     ],
+    "local_validation": {
+      "max_length": 256,
+      "reject_edge_whitespace": true,
+      "reject_control_characters": true
+    },
     "status": "runtime_emission_unverified"
   },
   "destinations_manifest_path": "packages/sovharn-apps-core/contracts/destinations.v1.json",

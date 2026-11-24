@@ -50,10 +50,13 @@ class PostgresDatabase:
                 ("app.owner_org_id", str(context.owner_org_id)),
                 ("app.application_id", context.application_id),
                 ("app.installation_id", str(context.installation_id)),
-                ("app.environment_id", str(context.environment_id)),
+                ("app.environment_id", context.environment_id),
+                ("app.environment_kind", context.environment_kind),
                 ("app.data_tenant_id", str(context.data_tenant_id)),
                 ("app.actor_id", str(context.actor_id)),
                 ("app.actor_kind", context.actor_kind),
+                ("app.policy_revision", context.policy_revision),
+                ("app.correlation_id", context.correlation_id),
             )
             for name, value in settings:
                 cursor.execute("SELECT set_config(%s, %s, true)", (name, value))

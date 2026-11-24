@@ -304,7 +304,7 @@ class PostgresSupportStore:
                      (owner_org_id, application_id, installation_id, environment_id, tenant_id,
                       actor_id, window_started_at, ticket_count)
                    VALUES (%s,%s,%s,%s,%s,%s,clock_timestamp(),1)
-                   ON CONFLICT (tenant_id, actor_id) DO UPDATE SET
+                   ON CONFLICT (owner_org_id, application_id, installation_id, environment_id, environment_kind, tenant_id, actor_id) DO UPDATE SET
                      window_started_at = CASE
                        WHEN support_portal.ticket_intake_limit.window_started_at < clock_timestamp() - interval '10 minutes'
                        THEN clock_timestamp() ELSE support_portal.ticket_intake_limit.window_started_at END,
@@ -610,7 +610,7 @@ class PostgresSupportStore:
         ticket_id: UUID,
         expected_version: int,
         team_id: UUID,
-        assignee_id: UUID,
+        assignee_id: str,
         idempotency_key: str,
     ) -> dict[str, Any]:
         payload = {"ticket_id": ticket_id, "expected_version": expected_version, "team_id": team_id, "assignee_id": assignee_id}
@@ -847,13 +847,13 @@ class PostgresSupportStore:
         )
 
     @staticmethod
-    def _notification(cursor: Any, context: RequestContext, ticket_id: UUID, recipient: UUID, event: str, row_version: int) -> None:
+    def _notification(cursor: Any, context: RequestContext, ticket_id: UUID, recipient: str, event: str, row_version: int) -> None:
         cursor.execute(
             """INSERT INTO support_portal.ticket_notification_intent
                  (id, owner_org_id, application_id, installation_id, environment_id, tenant_id,
                   ticket_id, recipient_actor_id, event_type, row_version)
                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-               ON CONFLICT (tenant_id, ticket_id, recipient_actor_id, event_type, row_version) DO NOTHING""",
+               ON CONFLICT (owner_org_id, application_id, installation_id, environment_id, environment_kind, tenant_id, ticket_id, recipient_actor_id, event_type, row_version) DO NOTHING""",
             (uuid4(), context.owner_org_id, context.application_id, context.installation_id,
              context.environment_id, context.data_tenant_id, ticket_id, recipient, event, row_version),
         )

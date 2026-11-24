@@ -106,8 +106,8 @@ class TransitionAction(StrEnum):
 @dataclass(frozen=True)
 class ActorContext:
     """App ACL snapshot loaded by the server for one authenticated actor."""
-    tenant_id: UUID
-    actor_id: UUID
+    tenant_id: str
+    actor_id: str
     actor_kind: ActorKind
     roles: frozenset[Role]
     account_ids: frozenset[UUID] = frozenset()
@@ -118,15 +118,15 @@ class ActorContext:
 @dataclass(frozen=True)
 class Ticket:
     id: UUID
-    tenant_id: UUID
+    tenant_id: str
     account_id: UUID
-    requester_id: UUID
+    requester_id: str
     subject: str
     status: TicketStatus
     priority: Priority
     visibility: Visibility
     team_id: UUID | None
-    assignee_id: UUID | None
+    assignee_id: str | None
     row_version: int
     updated_at: datetime
     category_id: UUID | None = None
@@ -136,9 +136,9 @@ class Ticket:
 @dataclass(frozen=True)
 class Message:
     id: UUID
-    tenant_id: UUID
+    tenant_id: str
     ticket_id: UUID
-    author_id: UUID
+    author_id: str
     kind: MessageKind
     body: str
     client_message_id: UUID
@@ -148,10 +148,10 @@ class Message:
 @dataclass(frozen=True)
 class AttachmentRef:
     id: UUID
-    tenant_id: UUID
+    tenant_id: str
     application_id: str
-    environment_id: UUID
-    owner_id: UUID
+    environment_id: str
+    owner_id: str
     scan_state: ScanState
     linked_message_id: UUID | None = None
 
@@ -293,7 +293,7 @@ def customer_export_surface(
 
 
 def notification_payload(
-    *, ticket: Ticket, recipient_actor_id: UUID, event: str
+    *, ticket: Ticket, recipient_actor_id: str, event: str
 ) -> Mapping[str, str | int]:
     """Return metadata only; message text and internal note content never leave here."""
     if event not in {"ticket_created", "public_reply", "status_changed", "assigned"}:
@@ -324,7 +324,7 @@ def assign_ticket(
     actor: ActorContext,
     expected_version: int,
     team_id: UUID,
-    assignee_id: UUID,
+    assignee_id: str,
     active_team_members: Mapping[UUID, frozenset[UUID]],
     updated_at: datetime,
 ) -> Ticket:
@@ -471,7 +471,7 @@ def validate_attachment_for_publish(
     ticket: Ticket,
     attachment: AttachmentRef,
     application_id: str,
-    environment_id: UUID,
+    environment_id: str,
 ) -> None:
     require_visible_ticket(actor, ticket)
     if attachment.tenant_id != ticket.tenant_id or attachment.tenant_id != actor.tenant_id:
