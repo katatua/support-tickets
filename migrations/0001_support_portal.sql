@@ -1,0 +1,648 @@
+-- Support portal D1 schema.
+-- D0 middleware must set transaction-local app.data_tenant_id, app.actor_id,
+-- app.application_id, app.installation_id and app.environment_id from its
+-- authenticated request context before any business query. Never accept these
+-- values from a client header or body. Runtime role must not own these tables
+-- and must not have BYPASSRLS.
+
+BEGIN;
+
+CREATE SCHEMA IF NOT EXISTS support_portal;
+
+CREATE TYPE support_portal.ticket_status AS ENUM (
+  'new', 'triaged', 'in_progress', 'waiting_customer', 'resolved', 'closed', 'cancelled'
+);
+CREATE TYPE support_portal.ticket_priority AS ENUM ('low', 'normal', 'high', 'urgent');
+CREATE TYPE support_portal.ticket_visibility AS ENUM ('requester', 'account');
+CREATE TYPE support_portal.message_kind AS ENUM ('public', 'internal');
+CREATE TYPE support_portal.member_role AS ENUM ('customer_admin', 'customer_member');
+CREATE TYPE support_portal.staff_role AS ENUM ('platform_admin', 'coordinator');
+CREATE TYPE support_portal.team_role AS ENUM ('agent', 'coordinator');
+
+CREATE FUNCTION support_portal.setting_text(setting_name text)
+RETURNS text
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT nullif(current_setting(setting_name, true), '')
+$$;
+
+CREATE FUNCTION support_portal.current_tenant_id()
+RETURNS uuid LANGUAGE sql STABLE
+AS $$ SELECT support_portal.setting_text('app.data_tenant_id')::uuid $$;
+
+CREATE FUNCTION support_portal.current_actor_id()
+RETURNS uuid LANGUAGE sql STABLE
+AS $$ SELECT support_portal.setting_text('app.actor_id')::uuid $$;
+
+CREATE FUNCTION support_portal.context_matches(
+  p_owner_org_id uuid,
+  p_application_id text,
+  p_installation_id uuid,
+  p_environment_id uuid,
+  p_tenant_id uuid
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT p_tenant_id = support_portal.current_tenant_id()
+     AND p_application_id = support_portal.setting_text('app.application_id')
+     AND p_installation_id = support_portal.setting_text('app.installation_id')::uuid
+     AND p_environment_id = support_portal.setting_text('app.environment_id')::uuid
+     AND p_owner_org_id = support_portal.setting_text('app.owner_org_id')::uuid
+$$;
+
+CREATE TABLE support_portal.customer_account (
+  id uuid NOT NULL,
+  owner_org_id uuid NOT NULL,
+  application_id text NOT NULL,
+  installation_id uuid NOT NULL,
+  environment_id uuid NOT NULL,
+  tenant_id uuid NOT NULL,
+  name varchar(160) NOT NULL CHECK (char_length(btrim(name)) BETWEEN 1 AND 160),
+  external_ref varchar(160),
+  active boolean NOT NULL DEFAULT true,
+  created_by uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  row_version bigint NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+  PRIMARY KEY (id),
+  UNIQUE (owner_org_id, application_id, installation_id, environment_id, tenant_id, id)
+);
+CREATE UNIQUE INDEX customer_account_external_ref_uq
+  ON support_portal.customer_account (tenant_id, external_ref)
+  WHERE external_ref IS NOT NULL;
+
+CREATE TABLE support_portal.account_member (
+  id uuid PRIMARY KEY,
+  owner_org_id uuid NOT NULL,
+  application_id text NOT NULL,
+  installation_id uuid NOT NULL,
+  environment_id uuid NOT NULL,
+  tenant_id uuid NOT NULL,
+  account_id uuid NOT NULL,
+  actor_id uuid NOT NULL,
+  role support_portal.member_role NOT NULL,
+  active boolean NOT NULL DEFAULT true,
+  created_by uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  revoked_at timestamptz,
+  FOREIGN KEY (owner_org_id, application_id, installation_id, environment_id, tenant_id, account_id)
+    REFERENCES support_portal.customer_account
+      (owner_org_id, application_id, installation_id, environment_id, tenant_id, id),
+  CHECK ((active AND revoked_at IS NULL) OR (NOT active AND revoked_at IS NOT NULL))
+);
+
+CREATE UNIQUE INDEX account_member_active_uq
+  ON support_portal.account_member (tenant_id, account_id, actor_id)
+  WHERE active;
+
+CREATE TABLE support_portal.staff_membership (
+  id uuid PRIMARY KEY,
+  owner_org_id uuid NOT NULL,
+  application_id text NOT NULL,
+  installation_id uuid NOT NULL,
+  environment_id uuid NOT NULL,
+  tenant_id uuid NOT NULL,
+  actor_id uuid NOT NULL,
+  role support_portal.staff_role NOT NULL,
+  active boolean NOT NULL DEFAULT true,
+  created_by uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  revoked_at timestamptz,
+  CHECK ((active AND revoked_at IS NULL) OR (NOT active AND revoked_at IS NOT NULL))
+);
+
+CREATE UNIQUE INDEX staff_membership_active_uq
+  ON support_portal.staff_membership (tenant_id, actor_id, role)
+  WHERE active;
+
+CREATE TABLE support_portal.support_team (
+  id uuid NOT NULL,
+  owner_org_id uuid NOT NULL,
+  application_id text NOT NULL,
+  installation_id uuid NOT NULL,
+  environment_id uuid NOT NULL,
+  tenant_id uuid NOT NULL,
+  name varchar(120) NOT NULL CHECK (char_length(btrim(name)) BETWEEN 1 AND 120),
+  active boolean NOT NULL DEFAULT true,
+  created_by uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  row_version bigint NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+  PRIMARY KEY (id),
+  UNIQUE (owner_org_id, application_id, installation_id, environment_id, tenant_id, id),
+  UNIQUE (tenant_id, name)
+);
+
+CREATE TABLE support_portal.team_member (
+  id uuid PRIMARY KEY,
+  owner_org_id uuid NOT NULL,
+  application_id text NOT NULL,
+  installation_id uuid NOT NULL,
+  environment_id uuid NOT NULL,
+  tenant_id uuid NOT NULL,
+  team_id uuid NOT NULL,
+  actor_id uuid NOT NULL,
+  role support_portal.team_role NOT NULL,
+  active boolean NOT NULL DEFAULT true,
+  created_by uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  revoked_at timestamptz,
+  FOREIGN KEY (owner_org_id, application_id, installation_id, environment_id, tenant_id, team_id)
+    REFERENCES support_portal.support_team
+      (owner_org_id, application_id, installation_id, environment_id, tenant_id, id),
+  CHECK ((active AND revoked_at IS NULL) OR (NOT active AND revoked_at IS NOT NULL))
+);
+
+CREATE UNIQUE INDEX team_member_active_uq
+  ON support_portal.team_member (tenant_id, team_id, actor_id)
+  WHERE active;
+
+CREATE TABLE support_portal.category (
+  id uuid NOT NULL,
+  owner_org_id uuid NOT NULL,
+  application_id text NOT NULL,
+  installation_id uuid NOT NULL,
+  environment_id uuid NOT NULL,
+  tenant_id uuid NOT NULL,
+  name varchar(80) NOT NULL CHECK (char_length(btrim(name)) BETWEEN 1 AND 80),
+  active boolean NOT NULL DEFAULT true,
+  created_by uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  row_version bigint NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+  PRIMARY KEY (id),
+  UNIQUE (owner_org_id, application_id, installation_id, environment_id, tenant_id, id),
+  UNIQUE (tenant_id, name)
+);
+
+CREATE FUNCTION support_portal.is_coordinator(p_tenant_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM support_portal.staff_membership m
+    WHERE m.tenant_id = p_tenant_id
+      AND m.actor_id = support_portal.current_actor_id()
+      AND m.active
+      AND m.role IN ('platform_admin', 'coordinator')
+  )
+$$;
+
+CREATE FUNCTION support_portal.is_active_account_member(p_tenant_id uuid, p_account_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM support_portal.account_member m
+    WHERE m.tenant_id = p_tenant_id
+      AND m.account_id = p_account_id
+      AND m.actor_id = support_portal.current_actor_id()
+      AND m.active
+  )
+$$;
+
+CREATE FUNCTION support_portal.is_active_team_member(p_tenant_id uuid, p_team_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM support_portal.team_member m
+    WHERE m.tenant_id = p_tenant_id
+      AND m.team_id = p_team_id
+      AND m.actor_id = support_portal.current_actor_id()
+      AND m.active
+  )
+$$;
+
+CREATE TABLE support_portal.ticket (
+  id uuid NOT NULL,
+  owner_org_id uuid NOT NULL,
+  application_id text NOT NULL,
+  installation_id uuid NOT NULL,
+  environment_id uuid NOT NULL,
+  tenant_id uuid NOT NULL,
+  account_id uuid NOT NULL,
+  requester_id uuid NOT NULL,
+  team_id uuid,
+  assignee_id uuid,
+  subject varchar(180) NOT NULL CHECK (char_length(btrim(subject)) BETWEEN 5 AND 180),
+  status support_portal.ticket_status NOT NULL DEFAULT 'new',
+  priority support_portal.ticket_priority NOT NULL DEFAULT 'normal',
+  visibility support_portal.ticket_visibility NOT NULL,
+  category_id uuid,
+  resolution_summary text,
+  created_by uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  row_version bigint NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+  PRIMARY KEY (id),
+  UNIQUE (owner_org_id, application_id, installation_id, environment_id, tenant_id, id),
+  FOREIGN KEY (owner_org_id, application_id, installation_id, environment_id, tenant_id, account_id)
+    REFERENCES support_portal.customer_account
+      (owner_org_id, application_id, installation_id, environment_id, tenant_id, id),
+  FOREIGN KEY (owner_org_id, application_id, installation_id, environment_id, tenant_id, team_id)
+    REFERENCES support_portal.support_team
+      (owner_org_id, application_id, installation_id, environment_id, tenant_id, id),
+  FOREIGN KEY (owner_org_id, application_id, installation_id, environment_id, tenant_id, category_id)
+    REFERENCES support_portal.category
+      (owner_org_id, application_id, installation_id, environment_id, tenant_id, id),
+  CHECK (resolution_summary IS NULL OR char_length(resolution_summary) <= 20000)
+);
+CREATE INDEX ticket_tenant_status_updated_idx
+  ON support_portal.ticket (tenant_id, status, updated_at DESC, id DESC);
+CREATE INDEX ticket_account_updated_idx
+  ON support_portal.ticket (tenant_id, account_id, updated_at DESC, id DESC);
+CREATE INDEX ticket_team_updated_idx
+  ON support_portal.ticket (tenant_id, team_id, updated_at DESC, id DESC);
+
+CREATE FUNCTION support_portal.can_read_ticket(p_ticket_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM support_portal.ticket t
+    WHERE t.id = p_ticket_id
+      AND support_portal.context_matches(
+        t.owner_org_id, t.application_id, t.installation_id, t.environment_id, t.tenant_id
+      )
+      AND (
+        support_portal.is_coordinator(t.tenant_id)
+        OR (t.requester_id = support_portal.current_actor_id()
+            AND support_portal.is_active_account_member(t.tenant_id, t.account_id))
+        OR (t.visibility = 'account' AND support_portal.is_active_account_member(t.tenant_id, t.account_id))
+        OR (t.team_id IS NOT NULL AND support_portal.is_active_team_member(t.tenant_id, t.team_id))
+      )
+  )
+$$;
+
+CREATE FUNCTION support_portal.can_read_internal(p_ticket_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM support_portal.ticket t
+    WHERE t.id = p_ticket_id
+      AND support_portal.context_matches(
+        t.owner_org_id, t.application_id, t.installation_id, t.environment_id, t.tenant_id
+      )
+      AND (
+        support_portal.is_coordinator(t.tenant_id)
+        OR (t.team_id IS NOT NULL AND support_portal.is_active_team_member(t.tenant_id, t.team_id))
+      )
+  )
+$$;
+
+CREATE TABLE support_portal.ticket_message (
+  id uuid NOT NULL,
+  owner_org_id uuid NOT NULL,
+  application_id text NOT NULL,
+  installation_id uuid NOT NULL,
+  environment_id uuid NOT NULL,
+  tenant_id uuid NOT NULL,
+  ticket_id uuid NOT NULL,
+  author_id uuid NOT NULL,
+  kind support_portal.message_kind NOT NULL,
+  body text NOT NULL CHECK (char_length(btrim(body)) BETWEEN 1 AND 20000),
+  client_message_id uuid NOT NULL,
+  body_sha256 char(64) NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (id),
+  UNIQUE (owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id, id),
+  UNIQUE (tenant_id, ticket_id, client_message_id),
+  FOREIGN KEY (owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id)
+    REFERENCES support_portal.ticket
+      (owner_org_id, application_id, installation_id, environment_id, tenant_id, id)
+);
+CREATE INDEX ticket_message_thread_idx
+  ON support_portal.ticket_message (tenant_id, ticket_id, created_at, id);
+
+CREATE TABLE support_portal.ticket_attachment (
+  id uuid NOT NULL,
+  owner_org_id uuid NOT NULL,
+  application_id text NOT NULL,
+  installation_id uuid NOT NULL,
+  environment_id uuid NOT NULL,
+  tenant_id uuid NOT NULL,
+  ticket_id uuid NOT NULL,
+  message_id uuid NOT NULL,
+  storage_object_id uuid NOT NULL,
+  owner_id uuid NOT NULL,
+  filename varchar(255) NOT NULL,
+  mime_type varchar(160) NOT NULL,
+  size_bytes bigint NOT NULL CHECK (size_bytes BETWEEN 1 AND 20971520),
+  sha256 char(64) NOT NULL,
+  scan_state text NOT NULL CHECK (scan_state = 'clean'),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (id),
+  UNIQUE (tenant_id, storage_object_id),
+  FOREIGN KEY (owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id)
+    REFERENCES support_portal.ticket
+      (owner_org_id, application_id, installation_id, environment_id, tenant_id, id),
+  FOREIGN KEY (owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id, message_id)
+    REFERENCES support_portal.ticket_message
+      (owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id, id)
+);
+CREATE INDEX ticket_attachment_message_idx
+  ON support_portal.ticket_attachment (tenant_id, ticket_id, message_id);
+
+CREATE TABLE support_portal.ticket_transition (
+  id uuid NOT NULL,
+  owner_org_id uuid NOT NULL,
+  application_id text NOT NULL,
+  installation_id uuid NOT NULL,
+  environment_id uuid NOT NULL,
+  tenant_id uuid NOT NULL,
+  ticket_id uuid NOT NULL,
+  from_status support_portal.ticket_status,
+  to_status support_portal.ticket_status NOT NULL,
+  actor_id uuid NOT NULL,
+  reason text,
+  expected_version bigint NOT NULL CHECK (expected_version >= 1),
+  occurred_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (id),
+  FOREIGN KEY (owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id)
+    REFERENCES support_portal.ticket
+      (owner_org_id, application_id, installation_id, environment_id, tenant_id, id)
+);
+
+CREATE TABLE support_portal.ticket_change_link (
+  id uuid NOT NULL,
+  owner_org_id uuid NOT NULL,
+  application_id text NOT NULL,
+  installation_id uuid NOT NULL,
+  environment_id uuid NOT NULL,
+  tenant_id uuid NOT NULL,
+  ticket_id uuid NOT NULL,
+  change_request_ref uuid NOT NULL,
+  created_by uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (id),
+  UNIQUE (tenant_id, ticket_id, change_request_ref),
+  FOREIGN KEY (owner_org_id, application_id, installation_id, environment_id, tenant_id, ticket_id)
+    REFERENCES support_portal.ticket
+      (owner_org_id, application_id, installation_id, environment_id, tenant_id, id)
+);
+
+CREATE FUNCTION support_portal.enforce_ticket_version()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.row_version <> OLD.row_version + 1 THEN
+    RAISE EXCEPTION 'row_version must increase by exactly one' USING ERRCODE = '40001';
+  END IF;
+  NEW.updated_at := clock_timestamp();
+  RETURN NEW;
+END
+$$;
+CREATE TRIGGER ticket_version_guard
+BEFORE UPDATE ON support_portal.ticket
+FOR EACH ROW EXECUTE FUNCTION support_portal.enforce_ticket_version();
+
+CREATE FUNCTION support_portal.reject_immutable_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RAISE EXCEPTION 'append-only support history cannot be changed' USING ERRCODE = '55000';
+END
+$$;
+CREATE TRIGGER ticket_message_immutable
+BEFORE UPDATE OR DELETE ON support_portal.ticket_message
+FOR EACH ROW EXECUTE FUNCTION support_portal.reject_immutable_mutation();
+CREATE TRIGGER ticket_transition_immutable
+BEFORE UPDATE OR DELETE ON support_portal.ticket_transition
+FOR EACH ROW EXECUTE FUNCTION support_portal.reject_immutable_mutation();
+
+-- Tenant, app, installation and environment are all checked in every RLS policy.
+-- The runtime DB role must be separate from the migration owner and have no
+-- BYPASSRLS. Revocation works because each request reads current membership.
+DO $$
+DECLARE table_name text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'customer_account', 'account_member', 'staff_membership', 'support_team',
+    'team_member', 'category', 'ticket', 'ticket_message', 'ticket_attachment',
+    'ticket_transition', 'ticket_change_link'
+  ]
+  LOOP
+    EXECUTE format('ALTER TABLE support_portal.%I ENABLE ROW LEVEL SECURITY', table_name);
+    EXECUTE format('ALTER TABLE support_portal.%I FORCE ROW LEVEL SECURITY', table_name);
+  END LOOP;
+END
+$$;
+
+CREATE POLICY customer_account_select ON support_portal.customer_account
+FOR SELECT USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND (support_portal.is_coordinator(tenant_id) OR support_portal.is_active_account_member(tenant_id, id))
+);
+CREATE POLICY customer_account_insert ON support_portal.customer_account
+FOR INSERT WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND created_by = support_portal.current_actor_id()
+  AND support_portal.is_coordinator(tenant_id)
+);
+CREATE POLICY customer_account_update ON support_portal.customer_account
+FOR UPDATE USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.is_coordinator(tenant_id)
+) WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+);
+
+CREATE POLICY account_member_scope ON support_portal.account_member
+FOR SELECT USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND (actor_id = support_portal.current_actor_id() OR support_portal.is_coordinator(tenant_id))
+);
+CREATE POLICY account_member_manage ON support_portal.account_member
+FOR ALL USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.is_coordinator(tenant_id)
+) WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.is_coordinator(tenant_id)
+);
+
+CREATE POLICY staff_membership_self ON support_portal.staff_membership
+FOR SELECT USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND actor_id = support_portal.current_actor_id()
+);
+CREATE POLICY staff_membership_insert ON support_portal.staff_membership
+FOR INSERT WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.is_coordinator(tenant_id)
+);
+CREATE POLICY staff_membership_update ON support_portal.staff_membership
+FOR UPDATE USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.is_coordinator(tenant_id)
+) WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.is_coordinator(tenant_id)
+);
+CREATE POLICY staff_membership_delete ON support_portal.staff_membership
+FOR DELETE USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.is_coordinator(tenant_id)
+);
+
+CREATE POLICY support_team_scope ON support_portal.support_team
+FOR SELECT USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND (support_portal.is_coordinator(tenant_id) OR support_portal.is_active_team_member(tenant_id, id))
+);
+CREATE POLICY support_team_manage ON support_portal.support_team
+FOR ALL USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.is_coordinator(tenant_id)
+) WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.is_coordinator(tenant_id)
+);
+
+CREATE POLICY team_member_scope ON support_portal.team_member
+FOR SELECT USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND (actor_id = support_portal.current_actor_id() OR support_portal.is_coordinator(tenant_id))
+);
+CREATE POLICY team_member_manage ON support_portal.team_member
+FOR ALL USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.is_coordinator(tenant_id)
+) WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.is_coordinator(tenant_id)
+);
+
+CREATE POLICY category_scope ON support_portal.category
+FOR SELECT USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND (support_portal.is_coordinator(tenant_id) OR EXISTS (
+    SELECT 1 FROM support_portal.team_member tm
+    WHERE tm.tenant_id = category.tenant_id
+      AND tm.actor_id = support_portal.current_actor_id()
+      AND tm.active
+  ))
+);
+CREATE POLICY category_manage ON support_portal.category
+FOR ALL USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.is_coordinator(tenant_id)
+) WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.is_coordinator(tenant_id)
+);
+
+CREATE POLICY ticket_scope_read ON support_portal.ticket
+FOR SELECT USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND (
+    support_portal.is_coordinator(tenant_id)
+    OR (requester_id = support_portal.current_actor_id()
+        AND support_portal.is_active_account_member(tenant_id, account_id))
+    OR (visibility = 'account' AND support_portal.is_active_account_member(tenant_id, account_id))
+    OR (team_id IS NOT NULL AND support_portal.is_active_team_member(tenant_id, team_id))
+  )
+);
+CREATE POLICY ticket_scope_insert ON support_portal.ticket
+FOR INSERT WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND created_by = support_portal.current_actor_id()
+  AND (
+    (requester_id = support_portal.current_actor_id()
+      AND support_portal.is_active_account_member(tenant_id, account_id))
+    OR support_portal.is_coordinator(tenant_id)
+    OR (team_id IS NOT NULL AND support_portal.is_active_team_member(tenant_id, team_id))
+  )
+);
+CREATE POLICY ticket_staff_update ON support_portal.ticket
+FOR UPDATE USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND (
+    support_portal.is_coordinator(tenant_id)
+    OR (team_id IS NOT NULL AND support_portal.is_active_team_member(tenant_id, team_id))
+  )
+) WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND (
+    support_portal.is_coordinator(tenant_id)
+    OR (team_id IS NOT NULL AND support_portal.is_active_team_member(tenant_id, team_id))
+  )
+);
+
+CREATE POLICY ticket_message_read ON support_portal.ticket_message
+FOR SELECT USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.can_read_ticket(ticket_id)
+  AND (kind = 'public' OR support_portal.can_read_internal(ticket_id))
+);
+CREATE POLICY ticket_message_insert ON support_portal.ticket_message
+FOR INSERT WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND author_id = support_portal.current_actor_id()
+  AND support_portal.can_read_ticket(ticket_id)
+  AND (kind = 'public' OR support_portal.can_read_internal(ticket_id))
+);
+
+CREATE POLICY ticket_attachment_read ON support_portal.ticket_attachment
+FOR SELECT USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.can_read_ticket(ticket_id)
+  AND EXISTS (
+    SELECT 1 FROM support_portal.ticket_message m
+    WHERE m.id = ticket_attachment.message_id
+      AND m.ticket_id = ticket_attachment.ticket_id
+      AND (m.kind = 'public' OR support_portal.can_read_internal(ticket_attachment.ticket_id))
+  )
+);
+CREATE POLICY ticket_attachment_insert ON support_portal.ticket_attachment
+FOR INSERT WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND owner_id = support_portal.current_actor_id()
+  AND scan_state = 'clean'
+  AND support_portal.can_read_ticket(ticket_id)
+  AND EXISTS (
+    SELECT 1 FROM support_portal.ticket_message m
+    WHERE m.id = ticket_attachment.message_id
+      AND m.ticket_id = ticket_attachment.ticket_id
+      AND m.author_id = support_portal.current_actor_id()
+  )
+);
+
+CREATE POLICY ticket_transition_staff_read ON support_portal.ticket_transition
+FOR SELECT USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.can_read_internal(ticket_id)
+);
+CREATE POLICY ticket_transition_staff_insert ON support_portal.ticket_transition
+FOR INSERT WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND actor_id = support_portal.current_actor_id()
+  AND support_portal.can_read_internal(ticket_id)
+);
+
+CREATE POLICY ticket_change_link_read ON support_portal.ticket_change_link
+FOR SELECT USING (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND support_portal.can_read_ticket(ticket_id)
+);
+CREATE POLICY ticket_change_link_insert ON support_portal.ticket_change_link
+FOR INSERT WITH CHECK (
+  support_portal.context_matches(owner_org_id, application_id, installation_id, environment_id, tenant_id)
+  AND created_by = support_portal.current_actor_id()
+  AND support_portal.can_read_ticket(ticket_id)
+);
+
+COMMIT;
+
